@@ -3,7 +3,7 @@ name: Build and Package
 on:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   build:
@@ -12,8 +12,37 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
       with:
-        fetch-depth: 0  # 取消浅层克隆，获取完整历史记录
+        node-version: '14'
+
+    - name: Increment version
+      id: increment
+      run: |
+        if [ -f version.ini ]; then
+          version=$(grep -oP '^\d+\.\d+\.\d+' version.ini)
+        else
+          version="0.0.0"
+        fi
+        IFS='.' read -r -a parts <<< "$version"
+        parts[2]=$((parts[2] + 1))
+        new_version="${parts[0]}.${parts[1]}.${parts[2]}"
+        date=$(date +'%Y-%m-%d')
+        echo "$new_version ($date)" > version.ini
+        echo "::set-output name=new_version::$new_version"
+        echo "::set-output name=date::$date"
+
+    - name: Commit version file
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git add version.ini
+        git commit -m 'Increment version to ${{ steps.increment.outputs.new_version }} on ${{ steps.increment.outputs.date }}'
+        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/StreePortal.git HEAD:main
 
     - name: Set up .NET
       uses: actions/setup-dotnet@v1
@@ -23,28 +52,9 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore
 
-    - name: Install GitVersion
-      run: dotnet tool install --global GitVersion.Tool
-
-    - name: Add .dotnet/tools to PATH
-      run: echo "~/.dotnet/tools" >> $GITHUB_PATH
-
-    - name: Verify GitVersion installation
-      run: ~/.dotnet/tools/dotnet-gitversion --version
-
-    - name: Generate version number
-      id: gitversion
-      run: ~/.dotnet/tools/dotnet-gitversion /output json /showvariable FullSemVer
-
-    - name: Set GitVersion output as environment variable
-      run: echo "GITVERSION=${{ steps.gitversion.outputs.FullSemVer }}" >> $GITHUB_ENV
-
-    - name: Debug - Print GitVersion
-      run: echo "GitVersion:$GITVERSION"
-
     - name: Update version in .csproj
       run: |
-        sed -i 's/<Version>.*<\/Version>/<Version>$GITVERSION<\/Version>/' YourProject.csproj
+        sed -i 's/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/' YourProject.csproj
 
     - name: Restore dependencies again
       run: dotnet restore
@@ -63,8 +73,8 @@ jobs:
     - name: Generate update_info.json
       run: |
         echo '{
-          "version": "$GITVERSION",
-          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v$GITVERSION/update.zip"
+          "version": "${{ steps.increment.outputs.new_version }}",
+          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
         }' > update_info.json
 
     - name: Upload artifacts
@@ -80,8 +90,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
-        tag_name: v$GITVERSION
-        release_name: Release v$GITVERSION
+        tag_name: v${{ steps.increment.outputs.new_version }}
+        release_name: Release v${{ steps.increment.outputs.new_version }}
         draft: false
         prerelease: false
 
