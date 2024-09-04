@@ -28,12 +28,15 @@ jobs:
       id: gitversion
       run: gitversion /output json /showvariable FullSemVer
 
+    - name: Set GitVersion output as environment variable
+      run: echo "GITVERSION=${{ steps.gitversion.outputs.FullSemVer }}" >> $GITHUB_ENV
+
     - name: Debug - Print GitVersion
-      run: echo "GitVersion: ${{ steps.gitversion.outputs.FullSemVer }}"
+      run: echo "GitVersion:$GITVERSION"
 
     - name: Update version in .csproj
       run: |
-        sed -i 's/<Version>.*<\/Version>/<Version>${{ steps.gitversion.outputs.FullSemVer }}<\/Version>/' YourProject.csproj
+        sed -i 's/<Version>.*<\/Version>/<Version>$GITVERSION<\/Version>/' YourProject.csproj
 
     - name: Restore dependencies again
       run: dotnet restore
@@ -52,8 +55,8 @@ jobs:
     - name: Generate update_info.json
       run: |
         echo '{
-          "version": "${{ steps.gitversion.outputs.FullSemVer }}",
-          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.gitversion.outputs.FullSemVer }}/update.zip"
+          "version": "$GITVERSION",
+          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v$GITVERSION/update.zip"
         }' > update_info.json
 
     - name: Upload artifacts
@@ -69,8 +72,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
-        tag_name: v${{ steps.gitversion.outputs.FullSemVer }}
-        release_name: Release v${{ steps.gitversion.outputs.FullSemVer }}
+        tag_name: v$GITVERSION
+        release_name: Release v$GITVERSION
         draft: false
         prerelease: false
 
