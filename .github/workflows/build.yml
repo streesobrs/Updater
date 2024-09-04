@@ -87,6 +87,12 @@ jobs:
           "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
         }' > update_info.json
 
+    - name: Verify update_info.json
+      run: cat update_info.json
+
+    - name: Debug - Print github.ref
+      run: echo "github.ref: ${{ github.ref }}"
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
       with:
