@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - master
+    tags:
+      - 'v*.*.*'
 
 jobs:
   build:
@@ -23,6 +25,12 @@ jobs:
 
     - name: Install GitVersion
       run: dotnet tool install --global GitVersion.Tool
+
+    - name: Add .dotnet/tools to PATH
+      run: echo "::add-path::~/.dotnet/tools"
+
+    - name: Verify GitVersion installation
+      run: gitversion --version
 
     - name: Generate version number
       id: gitversion
