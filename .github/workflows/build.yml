@@ -30,7 +30,7 @@ jobs:
       run: echo "~/.dotnet/tools" >> $GITHUB_PATH
 
     - name: Verify GitVersion installation
-      run: ~/.dotnet/tools/dotnet-gitversion --version
+      run: ~/.dotnet/tools/dotnet-gitversion /output json /showvariable FullSemVer
 
     - name: Generate version number
       id: gitversion
