@@ -54,7 +54,7 @@ jobs:
 
     - name: Update version in .csproj
       run: |
-        sed -i 's/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/' YourProject.csproj
+        sed -i 's/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/' Updater.csproj
 
     - name: Restore dependencies again
       run: dotnet restore
