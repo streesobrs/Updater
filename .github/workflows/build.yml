@@ -91,7 +91,7 @@ jobs:
       run: cat update_info.json
 
     - name: Debug - Print github.ref
-      run: echo "github.ref: ${{ github.ref }}"
+      run: echo "github.ref:${{ github.ref }}"
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
