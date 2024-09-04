@@ -67,10 +67,10 @@ jobs:
       run: dotnet restore
 
     - name: Build
-      run: dotnet build --configuration Release --no-restore --runtime win-x64
+      run: dotnet build --configuration Release --no-restore
 
     - name: Publish
-      run: dotnet publish --configuration Release --no-build --output ./publish --runtime win-x64
+      run: dotnet publish --configuration Release --no-build --output ./publish
 
     - name: Rename output file
       run: mv ./publish/Updater ./publish/Updater.exe
