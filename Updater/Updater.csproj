@@ -1,15 +1,16 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <PlatformTarget>x64</PlatformTarget>
-    <OutputType>Exe</OutputType>
-    <AssemblyName>Updater</AssemblyName>
-    <TargetFramework>net6.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-	<SelfContained>true</SelfContained>
-	<PublishTrimmed>true</PublishTrimmed>
-    <Version>1.0.0</Version>
-  </PropertyGroup>
+	<PropertyGroup>
+		<RuntimeIdentifier>win-x64</RuntimeIdentifier>
+		<PlatformTarget>x64</PlatformTarget>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net6.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<Version>1.0.0</Version>
+		<SelfContained>true</SelfContained>
+		<PublishTrimmed>true</PublishTrimmed>
+		<AssemblyName>Updater</AssemblyName>
+	</PropertyGroup>
 
 </Project>
