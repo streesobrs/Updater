@@ -75,17 +75,18 @@ jobs:
     - name: Install 7zip
       run: sudo apt-get install -y p7zip-full
 
-    - name: Create update.7z
-      run: 7z a update.7z ./output/*
+    - name: Create update.zip
+      run: 7z a -tzip update.zip ./output/Updater.deps.json ./output/Updater.dll ./output/Updater.exe ./output/Updater.pdb ./output/Updater.runtimeconfig.json
 
-    - name: Verify update.7z
-      run: ls -l update.7z
+
+    - name: Verify update.zip
+      run: ls -l update.zip
 
     - name: Generate update_info.json
       run: |
         echo '{
           "version": "${{ steps.increment.outputs.new_version }}",
-          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.7z"
+          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
         }' > update_info.json
 
     - name: Verify update_info.json
@@ -102,15 +103,15 @@ jobs:
         draft: false
         prerelease: false
 
-    - name: Upload update.7z to Release
+    - name: Upload update.zip to Release
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./update.7z
-        asset_name: update.7z
-        asset_content_type: application/x-7z-compressed
+        asset_path: ./update.zip
+        asset_name: update.zip
+        asset_content_type: application/zip
 
     - name: Upload update_info.json to Release
       uses: actions/upload-release-asset@v1
