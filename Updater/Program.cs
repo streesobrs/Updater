@@ -179,7 +179,7 @@ namespace Updater
             {
                 using (HttpClient client = new HttpClient())
                 {
-                    string updateInfoUrl = "http://example.com/update_info.json";
+                    string updateInfoUrl = "https://github.com/streesobrs/Updater/releases/latest/download/update_info.json";
                     string updateInfoJson = await client.GetStringAsync(updateInfoUrl);
                     JsonDocument updateInfo = JsonDocument.Parse(updateInfoJson);
 
