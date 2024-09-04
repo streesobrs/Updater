@@ -42,7 +42,7 @@ jobs:
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
         git add version.ini
         git commit -m 'Increment version to ${{ steps.increment.outputs.new_version }} on ${{ steps.increment.outputs.date }}'
-        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/StreePortal.git HEAD:main
+        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/Updater.git HEAD:master
 
     - name: Set up .NET
       uses: actions/setup-dotnet@v1
