@@ -101,8 +101,10 @@ jobs:
         draft: false
         prerelease: false
 
-    - name: Set tag name environment variable
-      run: echo "TAG_NAME=v${{ steps.increment.outputs.new_version }}" >> $GITHUB_ENV
+    - name: Set tag name and upload URL environment variables
+      run: |
+        echo "TAG_NAME=v${{ steps.increment.outputs.new_version }}" >> $GITHUB_ENV
+        echo "UPLOAD_URL=${{ steps.create_release.outputs.upload_url }}" >> $GITHUB_ENV
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
@@ -129,7 +131,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        upload_url: ${{ env.UPLOAD_URL }}
         asset_path: ./update.zip
         asset_name: update.zip
         asset_content_type: application/zip
@@ -139,7 +141,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        upload_url: ${{ env.UPLOAD_URL }}
         asset_path: ./update_info.json
         asset_name: update_info.json
         asset_content_type: application/json
