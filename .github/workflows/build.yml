@@ -100,6 +100,8 @@ jobs:
         release_name: Release v${{ steps.increment.outputs.new_version }}
         draft: false
         prerelease: false
+
+    - name: Set tag name environment variable
       run: echo "TAG_NAME=v${{ steps.increment.outputs.new_version }}" >> $GITHUB_ENV
 
     - name: Upload artifacts
