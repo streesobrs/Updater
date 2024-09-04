@@ -90,12 +90,17 @@ jobs:
     - name: Verify update_info.json
       run: cat update_info.json
 
-    - name: Create tag
-      id: create_tag
-      run: |
-        git tag -a v${{ steps.increment.outputs.new_version }} -m "Release version ${{ steps.increment.outputs.new_version }}"
-        git push origin v${{ steps.increment.outputs.new_version }}
-        echo "TAG_NAME=v${{ steps.increment.outputs.new_version }}" >> $GITHUB_ENV
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.increment.outputs.new_version }}
+        release_name: Release v${{ steps.increment.outputs.new_version }}
+        draft: false
+        prerelease: false
+      run: echo "TAG_NAME=v${{ steps.increment.outputs.new_version }}" >> $GITHUB_ENV
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
@@ -116,17 +121,6 @@ jobs:
       with:
         name: update-package
         path: .
-
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ env.TAG_NAME }}
-        release_name: Release ${{ env.TAG_NAME }}
-        draft: false
-        prerelease: false
 
     - name: Upload update.zip to Release
       uses: actions/upload-release-asset@v1
