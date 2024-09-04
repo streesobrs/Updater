@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - master
-    tags:
-      - 'v*.*.*'
 
 jobs:
   build:
@@ -15,12 +13,50 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v2
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v2
+      with:
+        node-version: '14'
+
+    - name: Increment version
+      id: increment
+      run: |
+        if [ -f version.ini ]; then
+          version=$(grep -oP '^\d+\.\d+\.\d+' version.ini)
+        else
+          version="0.0.0"
+        fi
+        IFS='.' read -r -a parts <<< "$version"
+        parts[2]=$((parts[2] + 1))
+        new_version="${parts[0]}.${parts[1]}.${parts[2]}"
+        date=$(date +'%Y-%m-%d')
+        echo "$new_version ($date)" > version.ini
+        echo "::set-output name=new_version::$new_version"
+        echo "::set-output name=date::$date"
+
+    - name: Commit version file
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        git add version.ini
+        git commit -m 'Increment version to ${{ steps.increment.outputs.new_version }} on ${{ steps.increment.outputs.date }}'
+        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/Updater.git HEAD:master
+
     - name: Set up .NET
       uses: actions/setup-dotnet@v1
       with:
         dotnet-version: '6.0.x'
 
     - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Update version in .csproj
+      run: |
+        sed -i 's/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/' Updater/Updater.csproj
+
+    - name: Restore dependencies again
       run: dotnet restore
 
     - name: Build
@@ -34,20 +70,11 @@ jobs:
         cd publish
         zip -r ../update.zip .
 
-    - name: Extract version from tag
-      id: extract_version
-      if: startsWith(github.ref, 'refs/tags/')
-      run: echo "::set-output name=version::${GITHUB_REF#refs/tags/}"
-
-    - name: Set default version
-      if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-      run: echo "::set-output name=version::1.0.0"
-
     - name: Generate update_info.json
       run: |
         echo '{
-          "version": "${{ steps.extract_version.outputs.version }}",
-          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.extract_version.outputs.version }}/update.zip"
+          "version": "${{ steps.increment.outputs.new_version }}",
+          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
         }' > update_info.json
 
     - name: Upload artifacts
@@ -63,8 +90,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
-        tag_name: v${{ steps.extract_version.outputs.version }}
-        release_name: Release v${{ steps.extract_version.outputs.version }}
+        tag_name: v${{ steps.increment.outputs.new_version }}
+        release_name: Release v${{ steps.increment.outputs.new_version }}
         draft: false
         prerelease: false
 
