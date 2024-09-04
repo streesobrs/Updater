@@ -75,9 +75,6 @@ jobs:
     - name: List output directory
       run: ls -lR ./output
 
-    - name: Rename output file
-      run: mv ./output/Updater ./output/Updater.exe
-
     - name: Create update.zip
       run: |
         cd output
