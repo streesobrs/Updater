@@ -99,6 +99,7 @@ jobs:
         path: update.zip
 
   release:
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
