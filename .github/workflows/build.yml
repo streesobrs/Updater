@@ -72,6 +72,9 @@ jobs:
     - name: Publish
       run: dotnet publish --configuration Release --no-build --output ./publish
 
+    - name: List publish directory
+      run: ls -l ./publish
+
     - name: Rename output file
       run: mv ./publish/Updater ./publish/Updater.exe
 
