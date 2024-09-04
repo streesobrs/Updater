@@ -177,7 +177,10 @@ namespace Updater
         {
             try
             {
-                using (HttpClient client = new HttpClient())
+                HttpClientHandler handler = new HttpClientHandler();
+                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => { return true; };
+
+                using (HttpClient client = new HttpClient(handler))
                 {
                     string updateInfoUrl = "https://github.com/streesobrs/Updater/releases/latest/download/update_info.json";
                     string updateInfoJson = await client.GetStringAsync(updateInfoUrl);
@@ -188,6 +191,10 @@ namespace Updater
 
                     // 读取当前版本号
                     string currentVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString();
+
+                    // 添加日志记录以确认版本号
+                    Log($"当前版本号: {currentVersion}");
+                    Log($"最新版本号: {latestVersion}");
 
                     if (latestVersion != currentVersion)
                     {
