@@ -27,7 +27,7 @@ jobs:
       run: dotnet tool install --global GitVersion.Tool
 
     - name: Add .dotnet/tools to PATH
-      run: echo "::add-path::~/.dotnet/tools"
+      run: echo "~/.dotnet/tools" >> $GITHUB_PATH
 
     - name: Verify GitVersion installation
       run: gitversion --version
