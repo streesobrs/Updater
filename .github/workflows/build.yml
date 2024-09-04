@@ -35,6 +35,8 @@ jobs:
         echo "::set-output name=date::$date"
         echo "New version: $new_version"
         echo "Date: $date"
+        echo "Version file content:"
+        cat version.ini
 
     - name: Commit version file
       env:
@@ -74,6 +76,9 @@ jobs:
       run: |
         cd publish
         zip -r ../update.zip .
+
+    - name: Verify update.zip
+      run: ls -l update.zip
 
     - name: Generate update_info.json
       run: |
