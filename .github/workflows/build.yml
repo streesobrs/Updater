@@ -70,17 +70,17 @@ jobs:
       run: dotnet build --configuration Release --no-restore
 
     - name: Publish
-      run: dotnet publish --configuration Release --no-build --output ./publish
+      run: dotnet publish --configuration Release --no-build --output ./output
 
-    - name: List publish directory
-      run: ls -l ./publish
+    - name: List output directory
+      run: ls -lR ./output
 
     - name: Rename output file
-      run: mv ./publish/Updater ./publish/Updater.exe
+      run: mv ./output/Updater ./output/Updater.exe
 
     - name: Create update.zip
       run: |
-        cd publish
+        cd output
         zip -r ../update.zip .
 
     - name: Verify update.zip
