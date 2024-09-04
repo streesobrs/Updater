@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - master
-    tags:
-      - 'v*.*.*'
 
 jobs:
   build:
@@ -14,6 +12,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
+      with:
+        fetch-depth: 0  # 取消浅层克隆，获取完整历史记录
 
     - name: Set up .NET
       uses: actions/setup-dotnet@v1
@@ -30,7 +30,7 @@ jobs:
       run: echo "~/.dotnet/tools" >> $GITHUB_PATH
 
     - name: Verify GitVersion installation
-      run: ~/.dotnet/tools/dotnet-gitversion /output json /showvariable FullSemVer
+      run: ~/.dotnet/tools/dotnet-gitversion --version
 
     - name: Generate version number
       id: gitversion
