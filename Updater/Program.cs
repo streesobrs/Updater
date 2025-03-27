@@ -2,11 +2,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
-using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using System.Threading.Tasks;
-using System.Xml.Linq;
-using System.Text.Json;
 
 namespace Updater
 {
@@ -16,286 +14,294 @@ namespace Updater
 
         static async Task Main(string[] args)
         {
-            AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(UnhandledExceptionHandler);
+            AppDomain.CurrentDomain.UnhandledException += UnhandledExceptionHandler;
 
             try
             {
-                // 初始化日志记录
-                string logFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update.log");
-                logWriter = new StreamWriter(logFilePath, true);
-                logWriter.AutoFlush = true;
+                InitializeLogging();
+                LogStartupInfo();
 
-                // 添加分界线和时间戳
-                Log("========================================");
-                Log($"日志开始时间: {DateTime.Now}");
-                Log("========================================");
-
-                // 获取版本号
-                string currentVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString();
-                Log($"当前版本: {currentVersion}");
-
-                // 检查是否有更新
-                if (await CheckForUpdatesAsync())
+                if (!ValidateArguments(args, out string filePath, out string mainAppPath))
                 {
-                    Environment.Exit(0);
-                }
-
-                if (args.Length < 2)
-                {
-                    Log("Usage: Updater.exe <filePath> <mainAppPath>");
                     WaitForExit();
                     return;
                 }
 
-                string filePath = args[0];
-                string mainAppPath = args[1].Trim('"'); // 去掉多余的引号
-
-                // 检查文件路径
-                if (!File.Exists(filePath))
+                if (!CheckPrerequisites(filePath, mainAppPath))
                 {
-                    Log($"文件路径无效: {filePath}");
                     WaitForExit();
                     return;
                 }
 
-                if (!Directory.Exists(mainAppPath))
-                {
-                    Log($"主程序路径无效: {mainAppPath}");
-                    WaitForExit();
-                    return;
-                }
-
-                // 检查磁盘空间
-                if (!HasEnoughDiskSpace(mainAppPath, filePath))
-                {
-                    Log("磁盘空间不足，无法解压文件。");
-                    WaitForExit();
-                    return;
-                }
-
-                // 输出传递的参数以进行调试
-                Log($"filePath: {filePath}");
-                Log($"mainAppPath: {mainAppPath}");
-
-                try
-                {
-                    // 解压更新文件
-                    using (ZipArchive archive = ZipFile.OpenRead(filePath))
-                    {
-                        int totalEntries = archive.Entries.Count;
-                        int processedEntries = 0;
-
-                        foreach (ZipArchiveEntry entry in archive.Entries)
-                        {
-                            try
-                            {
-                                string destinationPath = Path.Combine(mainAppPath, entry.FullName);
-                                Log($"解压文件: {destinationPath}");
-
-                                // 确保目标目录存在
-                                string destinationDir = Path.GetDirectoryName(destinationPath);
-                                if (!Directory.Exists(destinationDir))
-                                {
-                                    Directory.CreateDirectory(destinationDir);
-                                }
-
-                                // 检查文件是否被锁定
-                                if (IsFileLocked(destinationPath))
-                                {
-                                    Log($"文件被锁定，无法解压: {destinationPath}");
-                                    continue;
-                                }
-
-                                // 如果是文件夹，跳过删除和解压操作
-                                if (string.IsNullOrEmpty(entry.Name))
-                                {
-                                    continue;
-                                }
-
-                                // 删除已存在的文件
-                                if (File.Exists(destinationPath))
-                                {
-                                    File.Delete(destinationPath);
-                                }
-
-                                // 解压并覆盖现有文件
-                                entry.ExtractToFile(destinationPath, true);
-
-                                // 更新进度条
-                                processedEntries++;
-                                DisplayProgress(processedEntries, totalEntries);
-                            }
-                            catch (Exception ex)
-                            {
-                                Log($"解压文件时发生错误: {ex.Message}");
-                            }
-                        }
-
-                        Log("解压完成！");
-                        Log($"解压文件总数: {processedEntries}");
-
-                        // 手动将进度设置为100%
-                        DisplayProgress(totalEntries, totalEntries);
-                    }
-
-                    // 重新启动主程序
-                    Process.Start(Path.Combine(mainAppPath, "Software.exe"));
-
-                    // 等待用户输入以保持控制台窗口打开
-                    Log("按任意键退出...");
-                    await Task.Delay(60000); // 延迟60秒后自动关闭
-                    Environment.Exit(0);
-                }
-                catch (FileNotFoundException ex)
-                {
-                    Log($"文件未找到: {ex.Message}");
-                    Console.WriteLine($"文件未找到: {ex.Message}");
-                    WaitForExit();
-                }
-                catch (UnauthorizedAccessException ex)
-                {
-                    Log($"访问被拒绝: {ex.Message}");
-                    Console.WriteLine($"访问被拒绝: {ex.Message}");
-                    WaitForExit();
-                }
-                catch (Exception ex)
-                {
-                    Log($"更新时发生意外错误: {ex.Message}");
-                    Console.WriteLine($"更新时发生意外错误: {ex.Message}");
-                    WaitForExit();
-                }
+                await PerformUpdate(filePath, mainAppPath);
+                RestartMainApplication(mainAppPath);
+                await GracefulExit();
             }
             catch (Exception ex)
             {
-                Log($"更新时发生意外错误: {ex.Message}");
-                Console.WriteLine($"更新时发生意外错误: {ex.Message}");
+                Log($"更新过程中发生严重错误: {ex}");
                 WaitForExit();
             }
+            finally
+            {
+                logWriter?.Close();
+            }
         }
 
-        private static async Task<bool> CheckForUpdatesAsync()
+        #region Initialization
+        private static void InitializeLogging()
+        {
+            string logFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update.log");
+            logWriter = new StreamWriter(logFilePath, true, Encoding.UTF8) { AutoFlush = true };
+        }
+
+        private static void LogStartupInfo()
+        {
+            Log("========================================");
+            Log($"日志开始时间: {DateTime.Now}");
+            Log($"当前版本: {Assembly.GetExecutingAssembly().GetName().Version}");
+            Log("========================================");
+        }
+        #endregion
+
+        #region Argument Validation
+        private static bool ValidateArguments(string[] args, out string filePath, out string mainAppPath)
+        {
+            filePath = null;
+            mainAppPath = null;
+
+            if (args.Length < 2)
+            {
+                Log("参数错误: 需要两个参数 <filePath> <mainAppPath>");
+                return false;
+            }
+
+            filePath = args[0];
+            mainAppPath = Path.GetFullPath(args[1].Trim('"'));
+
+            if (!File.Exists(filePath))
+            {
+                Log($"无效的文件路径: {filePath}");
+                return false;
+            }
+
+            if (!Directory.Exists(mainAppPath))
+            {
+                Log($"无效的主程序路径: {mainAppPath}");
+                return false;
+            }
+
+            return true;
+        }
+        #endregion
+
+        #region Update Operations
+        private static async Task PerformUpdate(string zipPath, string targetDir)
+        {
+            Log("开始执行更新操作...");
+            await Task.Delay(5000); // 初始等待
+
+            using (var archive = ZipFile.OpenRead(zipPath))
+            {
+                if (archive.Entries.Count == 0)
+                {
+                    Log("错误: ZIP文件为空");
+                    return;
+                }
+
+                var totalFiles = archive.Entries.Count;
+                var processedFiles = 0;
+
+                foreach (var entry in archive.Entries)
+                {
+                    var destinationPath = GetSafeDestinationPath(entry, targetDir);
+                    if (destinationPath == null) continue;
+
+                    if (IsDirectoryEntry(entry)) continue;
+
+                    await ProcessFileEntry(entry, destinationPath);
+                    UpdateProgress(++processedFiles, totalFiles);
+                }
+            }
+        }
+
+        private static string GetSafeDestinationPath(ZipArchiveEntry entry, string targetDir)
         {
             try
             {
-                HttpClientHandler handler = new HttpClientHandler();
-                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => { return true; };
-
-                using (HttpClient client = new HttpClient(handler))
+                var fullPath = Path.GetFullPath(Path.Combine(targetDir, entry.FullName));
+                if (!fullPath.StartsWith(Path.GetFullPath(targetDir)))
                 {
-                    string updateInfoUrl = "https://github.com/streesobrs/Updater/releases/latest/download/update_info.json";
-                    string updateInfoJson = await client.GetStringAsync(updateInfoUrl);
-                    JsonDocument updateInfo = JsonDocument.Parse(updateInfoJson);
-
-                    string latestVersion = updateInfo.RootElement.GetProperty("version").GetString();
-                    string updateUrl = updateInfo.RootElement.GetProperty("updateUrl").GetString();
-
-                    // 读取当前版本号
-                    string currentVersion = Assembly.GetExecutingAssembly().GetName().Version.ToString();
-
-                    // 添加日志记录以确认版本号
-                    Log($"当前版本号: {currentVersion}");
-                    Log($"最新版本号: {latestVersion}");
-
-                    if (latestVersion != currentVersion)
-                    {
-                        Log($"发现新版本: {latestVersion}");
-                        Log("正在下载更新文件...");
-
-                        string updateFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update.zip");
-                        byte[] updateData = await client.GetByteArrayAsync(updateUrl);
-                        await File.WriteAllBytesAsync(updateFilePath, updateData);
-
-                        // 保存传递的参数到临时文件
-                        string tempArgsFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tempArgs.txt");
-                        File.WriteAllLines(tempArgsFilePath, Environment.GetCommandLineArgs());
-
-                        // 生成批处理文件
-                        string batFilePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "update.bat");
-                        using (StreamWriter writer = new StreamWriter(batFilePath))
-                        {
-                            writer.WriteLine("@echo off");
-                            writer.WriteLine("timeout /t 5 /nobreak"); // 等待5秒，确保主程序完全退出
-                            writer.WriteLine($"del \"{Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Updater.exe")}\"");
-                            writer.WriteLine($"powershell -Command \"Expand-Archive -Path '{updateFilePath}' -DestinationPath '{AppDomain.CurrentDomain.BaseDirectory}' -Force\"");
-                            writer.WriteLine($"del \"{updateFilePath}\"");
-                            writer.WriteLine($"start \"\" \"{Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Updater.exe")}\" @\"{tempArgsFilePath}\"");
-                            writer.WriteLine($"del \"{tempArgsFilePath}\"");
-                            writer.WriteLine($"del \"%~f0\""); // 删除批处理文件自身
-                        }
-
-                        // 启动批处理文件
-                        Process.Start(new ProcessStartInfo
-                        {
-                            FileName = batFilePath,
-                            WindowStyle = ProcessWindowStyle.Hidden
-                        });
-
-                        return true;
-                    }
+                    Log($"安全警告: 尝试写入非目标目录 {fullPath}");
+                    return null;
                 }
+                return fullPath;
             }
             catch (Exception ex)
             {
-                Log($"检查更新时发生错误: {ex.Message}");
+                Log($"路径解析失败: {ex.Message}");
+                return null;
             }
-
-            return false;
         }
 
-        private static void DisplayProgress(int processedEntries, int totalEntries)
+        private static bool IsDirectoryEntry(ZipArchiveEntry entry)
         {
-            double progress = (double)processedEntries / totalEntries * 100;
-            if (progress > 100)
-            {
-                progress = 100;
-            }
-            Log($"进度: {progress:F2}%");
+            return string.IsNullOrEmpty(entry.Name) &&
+                   !string.IsNullOrEmpty(entry.FullName) &&
+                   entry.FullName.EndsWith("/");
         }
 
-        private static bool HasEnoughDiskSpace(string mainAppPath, string filePath)
-        {
-            DriveInfo drive = new DriveInfo(Path.GetPathRoot(mainAppPath));
-            long availableSpace = drive.AvailableFreeSpace;
-
-            FileInfo fileInfo = new FileInfo(filePath);
-            long requiredSpace = fileInfo.Length * 2; // 假设解压后的文件大小是压缩文件的两倍
-
-            return availableSpace > requiredSpace;
-        }
-
-        private static bool IsFileLocked(string filePath)
+        private static async Task ProcessFileEntry(ZipArchiveEntry entry, string destinationPath)
         {
             try
             {
-                using (FileStream stream = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                Log($"处理文件: {destinationPath}");
+                EnsureDirectoryExists(destinationPath);
+                DeleteExistingFile(destinationPath);
+                await ExtractWithRetry(entry, destinationPath);
+            }
+            catch (Exception ex)
+            {
+                Log($"文件处理失败: {ex.Message}");
+            }
+        }
+
+        private static void EnsureDirectoryExists(string filePath)
+        {
+            var dir = Path.GetDirectoryName(filePath);
+            if (!Directory.Exists(dir))
+            {
+                Log($"创建目录: {dir}");
+                Directory.CreateDirectory(dir);
+            }
+        }
+
+        private static void DeleteExistingFile(string path)
+        {
+            if (!File.Exists(path)) return;
+
+            try
+            {
+                File.SetAttributes(path, FileAttributes.Normal);
+                File.Delete(path);
+                Log($"已删除现有文件: {path}");
+            }
+            catch (Exception ex)
+            {
+                Log($"文件删除失败: {ex.Message}");
+                throw;
+            }
+        }
+
+        private static async Task ExtractWithRetry(ZipArchiveEntry entry, string destinationPath, int maxRetries = 5)
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try
                 {
-                    stream.Close();
+                    entry.ExtractToFile(destinationPath, overwrite: true);
+                    return;
+                }
+                catch (IOException) when (i < maxRetries - 1)
+                {
+                    Log($"文件被占用，等待重试 ({i + 1}/{maxRetries})...");
+                    await Task.Delay(3000);
                 }
             }
-            catch (IOException)
+            throw new IOException($"无法解压文件: {destinationPath}");
+        }
+        #endregion
+
+        #region UI Helpers
+        private static void UpdateProgress(int processed, int total)
+        {
+            var progress = (double)processed / total * 100;
+            Log($"进度: {Math.Min(progress, 100):F2}%");
+        }
+
+        private static void RestartMainApplication(string mainAppPath)
+        {
+            var exePath = Path.Combine(mainAppPath, "Software.exe");
+            if (!File.Exists(exePath))
             {
-                return true;
+                Log($"主程序未找到: {exePath}");
+                return;
             }
-            return false;
+
+            try
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    WorkingDirectory = mainAppPath,
+                    UseShellExecute = true
+                };
+                Process.Start(startInfo);
+                Log("主程序已成功启动");
+            }
+            catch (Exception ex)
+            {
+                Log($"启动失败: {ex.Message}");
+            }
+        }
+        #endregion
+
+        #region Exit Handling
+        private static async Task GracefulExit()
+        {
+            Log("操作完成，10秒后自动退出...");
+            await Task.Delay(10000);
+            Environment.Exit(0);
         }
 
         private static void WaitForExit()
         {
             Log("按任意键退出...");
-            Console.ReadLine();
+            Console.ReadKey();
         }
+        #endregion
 
+        #region Error Handling
         private static void UnhandledExceptionHandler(object sender, UnhandledExceptionEventArgs e)
         {
-            Exception ex = (Exception)e.ExceptionObject;
-            Log($"未处理的异常: {ex.Message}");
+            var ex = (Exception)e.ExceptionObject;
+            Log($"未处理的异常: {ex}");
             WaitForExit();
+            Environment.Exit(1);
+        }
+        #endregion
+
+        #region Utility Methods
+        private static bool CheckPrerequisites(string filePath, string mainAppPath)
+        {
+            if (!CheckDiskSpace(mainAppPath, filePath))
+            {
+                Log("错误: 磁盘空间不足");
+                return false;
+            }
+            return true;
+        }
+
+        private static bool CheckDiskSpace(string targetDir, string zipPath)
+        {
+            try
+            {
+                var drive = new DriveInfo(Path.GetPathRoot(targetDir));
+                var zipSize = new FileInfo(zipPath).Length;
+                return drive.AvailableFreeSpace > zipSize * 3; // 更保守的估算
+            }
+            catch
+            {
+                return true; // 空间检查失败时不阻塞更新
+            }
         }
 
         private static void Log(string message)
         {
-            Console.WriteLine(message);
-            logWriter?.WriteLine($"{DateTime.Now}: {message}");
+            var formattedMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - {message}";
+            Console.WriteLine(formattedMessage);
+            logWriter?.WriteLine(formattedMessage);
         }
+        #endregion
     }
 }
