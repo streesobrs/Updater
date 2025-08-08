@@ -1,4 +1,4 @@
-name: Build, Package, and Release for Windows
+name: Build & Release (单文件版)
 
 on:
   push:
@@ -10,114 +10,56 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Increment version
-      id: increment
-      run: |
-        if [ -f version.ini ]; then
-          version=$(grep -oP '^\d+\.\d+\.\d+' version.ini)
-        else
-          version="1.0.0"
-        fi
-        IFS='.' read -r -a parts <<< "$version"
-        parts[2]=$((parts[2] + 1))
-        new_version="${parts[0]}.${parts[1]}.${parts[2]}"
-        date=$(date +'%Y-%m-%d')
-        echo "$new_version ($date)" > version.ini
-        echo "::set-output name=new_version::$new_version"
-        echo "::set-output name=date::$date"
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
 
-    - name: Commit version file
-      if: "!contains(github.event.head_commit.message, 'Increment version')"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: |
-        git config --global user.name 'github-actions[bot]'
-        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git add version.ini
-        git commit -m 'Increment version to ${{ steps.increment.outputs.new_version }} on ${{ steps.increment.outputs.date }}'
-        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/Updater.git HEAD:master
+      - name: Restore dependencies
+        run: dotnet restore
 
-    - name: Set up .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: '6.0.x'
+      - name: Publish (单文件 + 独立部署)
+        run: |
+          dotnet publish \
+            --configuration Release \
+            --runtime win-x64 \
+            --self-contained true \
+            --output ./output \
+            --single-file \
+            --no-restore
+          # 发布后会生成独立的 Updater.exe
 
-    - name: Cache .NET dependencies
-      uses: actions/cache@v3
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
+      - name: Verify single file
+        run: |
+          if [ -f ./output/Updater.exe ]; then
+            echo "单文件发布成功: Updater.exe"
+          else
+            echo "单文件发布失败"
+            exit 1
+          fi
 
-    - name: Restore dependencies
-      run: dotnet restore Updater/Updater.csproj
+      - name: Create update.zip (仅包含 Updater.exe)
+        run: |
+          sudo apt-get install -y p7zip-full
+          7z a -tzip update.zip ./output/Updater.exe
 
-    - name: Update version in .csproj
-      run: |
-        sed -i 's/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/' Updater/Updater.csproj
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.increment_version.outputs.new_version }}
+          release_name: Release v${{ steps.increment_version.outputs.new_version }}
+          prerelease: false
 
-    - name: Build for Windows
-      run: dotnet build Updater/Updater.csproj --configuration Release --no-restore --runtime win-x64
-
-    - name: Publish for Windows
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained true
-
-    - name: List output directory (debug)
-      run: ls -l ./output  
-
-    - name: Verify executable exists
-      run: |
-        if [ -f "./output/Updater.exe" ]; then
-          echo "Windows executable found"
-        else
-          echo "Windows executable not found"
-          exit 1
-        fi
-
-    - name: Install 7zip
-      run: sudo apt-get install -y p7zip-full
-
-    - name: Create update.zip
-      run: 7z a -tzip update.zip ./output/*
-
-    - name: Generate update_info.json
-      run: |
-        echo '{
-          "version": "${{ steps.increment.outputs.new_version }}",
-          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
-        }' > update_info.json
-
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ steps.increment.outputs.new_version }}
-        release_name: Release v${{ steps.increment.outputs.new_version }} (Windows)
-        draft: false
-        prerelease: false
-
-    - name: Upload update.zip to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./update.zip
-        asset_name: update.zip
-        asset_content_type: application/zip
-
-    - name: Upload update_info.json to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./update_info.json
-        asset_name: update_info.json
-        asset_content_type: application/json
+      - name: Upload update.zip
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./update.zip
+          asset_name: update.zip
+          asset_content_type: application/zip
