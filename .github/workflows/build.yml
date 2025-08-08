@@ -45,12 +45,6 @@ jobs:
       with:
         dotnet-version: '6.0.x'
 
-    - name: Install Windows runtime identifier
-      run: dotnet workload install microsoft.net.runtime.webassembly.tools
-      
-    - name: Add Windows target
-      run: dotnet add Updater/Updater.csproj package Microsoft.NET.Runtime.Identifier.dotnet-runtime-6.0.0-win-x64
-
     - name: Cache .NET dependencies
       uses: actions/cache@v3
       with:
@@ -73,7 +67,7 @@ jobs:
       run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained true
 
     - name: List output directory (debug)
-      run: ls -l ./output  # 查看生成的Windows文件
+      run: ls -l ./output  
 
     - name: Verify executable exists
       run: |
@@ -85,7 +79,7 @@ jobs:
         fi
 
     - name: Install 7zip
-      run: sudo apt apt-get install -y p7zip-full
+      run: sudo apt-get install -y p7zip-full
 
     - name: Create update.zip
       run: 7z a -tzip update.zip ./output/*
@@ -127,4 +121,3 @@ jobs:
         asset_path: ./update_info.json
         asset_name: update_info.json
         asset_content_type: application/json
-    
