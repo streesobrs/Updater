@@ -8,7 +8,7 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<PublishSingleFile>true</PublishSingleFile>
-		<Version>1.4.8.0</Version>
+		<Version>1.4.9.0</Version>
 		<SelfContained>true</SelfContained>
 		<PublishTrimmed>true</PublishTrimmed>
 		<AssemblyName>Updater</AssemblyName>

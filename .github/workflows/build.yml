@@ -18,6 +18,41 @@ jobs:
         with:
           dotnet-version: '6.0.x'
 
+      # ============ 新增：读取并递增版本号 ============
+      - name: Extract version from .csproj
+        id: extract_version
+        run: |
+          # 从 .csproj 提取版本号（假设 <Version>1.0.0</Version> 格式）
+          current_version=$(grep -oP '<Version>\K[^<]+' Updater/Updater.csproj)
+          echo "当前版本: $current_version"
+          echo "::set-output name=current_version::$current_version"
+
+      - name: Increment version
+        id: increment_version
+        run: |
+          # 拆分版本号并递增（这里以修订号 +1 为例，可改 parts[1] 改 minor 版本）
+          IFS='.' read -r -a parts <<< "${{ steps.extract_version.outputs.current_version }}"
+          parts[2]=$((parts[2] + 1))
+          new_version="${parts[0]}.${parts[1]}.${parts[2]}"
+          echo "新版本: $new_version"
+          echo "::set-output name=new_version::$new_version"
+
+      - name: Update version in .csproj
+        run: |
+          # 更新 .csproj 里的版本号
+          sed -i "s/<Version>${{ steps.extract_version.outputs.current_version }}<\/Version>/<Version>${{ steps.increment_version.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
+
+      - name: Commit version change
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add Updater/Updater.csproj
+          git commit -m "Increment version to ${{ steps.increment_version.outputs.new_version }}"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/Updater.git HEAD:master
+      # ============ 版本号逻辑补全结束 ============
+
       - name: Restore dependencies
         run: dotnet restore
 
@@ -30,7 +65,6 @@ jobs:
             --output ./output \
             /p:PublishSingleFile=true \
             --no-restore
-          # 发布后会生成独立的 Updater.exe
 
       - name: Verify single file
         run: |
@@ -52,7 +86,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.increment_version.outputs.new_version }}
+          # 用补全后的版本号
+          tag_name: v${{ steps.increment_version.outputs.new_version }}  
           release_name: Release v${{ steps.increment_version.outputs.new_version }}
           prerelease: false
 
