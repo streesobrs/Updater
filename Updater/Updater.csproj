@@ -13,6 +13,7 @@
 		<PublishTrimmed>true</PublishTrimmed>
 		<AssemblyName>Updater</AssemblyName>
 		<LangVersion>latest</LangVersion>
+		
 		<CodePage>65001</CodePage>
 		<!-- 添加这一行以确保使用 UTF-8 编码 -->
 	</PropertyGroup>
