@@ -353,7 +353,7 @@ namespace SecureUpdater
         {
             string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
             Directory.CreateDirectory(logDir);
-            string logPath = Path.Combine(logDir, $"update_{DateTime.Now:yyyyMMddHHmmss}.log");
+            string logPath = Path.Combine(logDir, $"update_{DateTime.Now:yyyy-MM-dd}.log");
             _logWriter = new StreamWriter(logPath, true, Encoding.UTF8) { AutoFlush = true };
         }
 

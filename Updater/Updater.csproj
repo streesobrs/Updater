@@ -7,7 +7,7 @@
 		<TargetFramework>net6.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<Version>1.4.6</Version>
+		<Version>1.4.8.0</Version>
 		<SelfContained>true</SelfContained>
 		<PublishTrimmed>true</PublishTrimmed>
 		<AssemblyName>Updater</AssemblyName>
