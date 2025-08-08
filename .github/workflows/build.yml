@@ -1,4 +1,4 @@
-name: Build, Package, and Release
+name: Build, Package, and Release for Windows
 
 on:
   push:
@@ -11,12 +11,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
-
-    - name: Set up Node.js
-      uses: actions/setup-node@v2
-      with:
-        node-version: '14'
+      uses: actions/checkout@v4
 
     - name: Increment version
       id: increment
@@ -33,12 +28,9 @@ jobs:
         echo "$new_version ($date)" > version.ini
         echo "::set-output name=new_version::$new_version"
         echo "::set-output name=date::$date"
-        echo "New version: $new_version"
-        echo "Date: $date"
-        echo "Version file content:"
-        cat version.ini
 
     - name: Commit version file
+      if: "!contains(github.event.head_commit.message, 'Increment version')"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -49,43 +41,54 @@ jobs:
         git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/Updater.git HEAD:master
 
     - name: Set up .NET
-      uses: actions/setup-dotnet@v1
+      uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '6.0.x'
 
+    - name: Install Windows runtime identifier
+      run: dotnet workload install microsoft.net.runtime.webassembly.tools
+      
+    - name: Add Windows target
+      run: dotnet add Updater/Updater.csproj package Microsoft.NET.Runtime.Identifier.dotnet-runtime-6.0.0-win-x64
+
+    - name: Cache .NET dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore Updater/Updater.csproj
 
     - name: Update version in .csproj
       run: |
         sed -i 's/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/' Updater/Updater.csproj
 
-    - name: Verify version update
-      run: cat Updater/Updater.csproj
+    - name: Build for Windows
+      run: dotnet build Updater/Updater.csproj --configuration Release --no-restore --runtime win-x64
 
-    - name: Restore dependencies again
-      run: dotnet restore
+    - name: Publish for Windows
+      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained true
 
-    - name: Build
-      run: dotnet build --configuration Release --no-restore
+    - name: List output directory (debug)
+      run: ls -l ./output  # 查看生成的Windows文件
 
-    - name: Publish
-      run: dotnet publish --configuration Release --no-build --output ./output
-
-    - name: List output directory
-      run: ls -lR ./output
-
-    - name: Rename output file
-      run: mv ./output/Updater ./output/Updater.exe
+    - name: Verify executable exists
+      run: |
+        if [ -f "./output/Updater.exe" ]; then
+          echo "Windows executable found"
+        else
+          echo "Windows executable not found"
+          exit 1
+        fi
 
     - name: Install 7zip
-      run: sudo apt-get install -y p7zip-full
+      run: sudo apt apt-get install -y p7zip-full
 
     - name: Create update.zip
-      run: 7z a -tzip update.zip ./output/Updater.deps.json ./output/Updater.dll ./output/Updater.exe ./output/Updater.pdb ./output/Updater.runtimeconfig.json
-
-    - name: Verify update.zip
-      run: ls -l update.zip
+      run: 7z a -tzip update.zip ./output/*
 
     - name: Generate update_info.json
       run: |
@@ -94,9 +97,6 @@ jobs:
           "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
         }' > update_info.json
 
-    - name: Verify update_info.json
-      run: cat update_info.json
-
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
@@ -104,7 +104,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
       with:
         tag_name: v${{ steps.increment.outputs.new_version }}
-        release_name: Release v${{ steps.increment.outputs.new_version }}
+        release_name: Release v${{ steps.increment.outputs.new_version }} (Windows)
         draft: false
         prerelease: false
 
@@ -127,3 +127,4 @@ jobs:
         asset_path: ./update_info.json
         asset_name: update_info.json
         asset_content_type: application/json
+    
