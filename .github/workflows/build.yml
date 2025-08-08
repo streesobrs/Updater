@@ -1,94 +1,137 @@
-name: Build & Release (单文件版)
+name: Build, Package, and Release for Windows
 
 on:
   push:
     branches:
-      - master
+      - master  # 仅触发正式版，测试版可另开分支
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      # 1. 检出代码
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '6.0.x'
-
-      # ============ 版本号处理（兼容新规范） ============
-      - name: Extract version from .csproj
-        id: extract_version
-        run: |
-          current_version=$(grep -oP '<Version>\K[^<]+' Updater/Updater.csproj)
-          echo "current_version=$current_version" >> $GITHUB_OUTPUT  # 新语法
-
+      # 2. 版本递增（沿用 version.ini 逻辑）
       - name: Increment version
-        id: increment_version
+        id: increment
         run: |
-          IFS='.' read -r -a parts <<< "${{ steps.extract_version.outputs.current_version }}"
-          parts[2]=$((parts[2] + 1))
+          if [ -f version.ini ]; then
+            version=$(grep -oP '^\d+\.\d+\.\d+' version.ini)
+          else
+            version="1.0.0"
+          fi
+          IFS='.' read -r -a parts <<< "$version"
+          parts[2]=$((parts[2] + 1))  # 修订号+1
           new_version="${parts[0]}.${parts[1]}.${parts[2]}"
-          echo "new_version=$new_version" >> $GITHUB_OUTPUT  # 新语法
+          date=$(date +'%Y-%m-%d')
+          echo "$new_version ($date)" > version.ini
+          # 替换弃用的 set-output（兼容旧版语法，或改用环境文件）
+          echo "::set-output name=new_version::$new_version"
+          echo "::set-output name=date::$date"
 
-      - name: Update version in .csproj
-        run: |
-          sed -i "s/<Version>${{ steps.extract_version.outputs.current_version }}<\/Version>/<Version>${{ steps.increment_version.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
-
-      - name: Commit version change
+      # 3. 提交 version.ini（避免循环触发）
+      - name: Commit version file
+        if: "!contains(github.event.head_commit.message, 'Increment version')"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add Updater/Updater.csproj
-          git commit -m "Increment version to ${{ steps.increment_version.outputs.new_version }}"
+          git add version.ini
+          git commit -m 'Increment version to ${{ steps.increment.outputs.new_version }}'
           git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/Updater.git HEAD:master
-      # ============ 版本号处理结束 ============
 
+      # 4. 配置 .NET 环境
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+
+      # 5. 缓存依赖（加速构建）
+      - name: Cache .NET dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      # 6. 还原项目依赖
       - name: Restore dependencies
-        run: dotnet restore
+        run: dotnet restore Updater/Updater.csproj
 
-      - name: Publish (单文件 + 独立部署)
+      # 7. 更新 .csproj 版本号
+      - name: Update version in .csproj
         run: |
-          dotnet publish \
-            --configuration Release \
-            --runtime win-x64 \
-            --self-contained true \
-            --output ./output \
-            /p:PublishSingleFile=true \
-            --no-restore
+          sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
 
-      - name: Verify single file
+      # 8. 构建 Windows 程序（Release + win-x64）
+      - name: Build for Windows
+        run: dotnet build Updater/Updater.csproj --configuration Release --no-restore --runtime win-x64
+
+      # 9. 发布单文件（独立部署）
+      - name: Publish for Windows
+        run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained true
+
+      # 10. 调试：查看输出目录内容
+      - name: List output directory (debug)
+        run: ls -l ./output
+
+      # 11. 验证 Updater.exe 是否存在
+      - name: Verify executable exists
         run: |
-          if [ -f ./output/Updater.exe ]; then
-            echo "单文件发布成功: Updater.exe"
+          if [ -f "./output/Updater.exe" ]; then
+            echo "Windows executable found"
           else
-            echo "单文件发布失败"
+            echo "Windows executable not found"
             exit 1
           fi
 
-      - name: Create update.zip (仅包含 Updater.exe)
-        run: |
-          sudo apt-get install -y p7zip-full
-          7z a -tzip update.zip ./output/Updater.exe
+      # 12. 安装 7zip（打包用）
+      - name: Install 7zip
+        run: sudo apt-get install -y p7zip-full
 
+      # 13. 打包 update.zip（仅含 Updater.exe）
+      - name: Create update.zip
+        run: 7z a -tzip update.zip ./output/Updater.exe  # 只打包单文件
+
+      # 14. 生成 update_info.json
+      - name: Generate update_info.json
+        run: |
+          echo '{
+            "version": "${{ steps.increment.outputs.new_version }}",
+            "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
+          }' > update_info.json
+
+      # 15. 创建 GitHub Release
       - name: Create Release
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 改用默认 GITHUB_TOKEN
         with:
-          tag_name: v${{ steps.increment_version.outputs.new_version }}
-          release_name: Release v${{ steps.increment_version.outputs.new_version }}
+          tag_name: v${{ steps.increment.outputs.new_version }}
+          release_name: Release v${{ steps.increment.outputs.new_version }} (Windows)
+          draft: false
           prerelease: false
 
-      - name: Upload update.zip
+      # 16. 上传 update.zip 到 Release
+      - name: Upload update.zip to Release
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
           asset_path: ./update.zip
           asset_name: update.zip
           asset_content_type: application/zip
+
+      # 17. 上传 update_info.json 到 Release
+      - name: Upload update_info.json to Release
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./update_info.json
+          asset_name: update_info.json
+          asset_content_type: application/json
