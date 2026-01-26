@@ -44,7 +44,7 @@ jobs:
     - name: Set up .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '6.0.x'
+        dotnet-version: '10.0.x'
 
     - name: Cache .NET dependencies
       uses: actions/cache@v3
@@ -65,7 +65,7 @@ jobs:
       run: dotnet build Updater/Updater.csproj --configuration Release --no-restore --runtime win-x64
 
     - name: Publish for Windows
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained true /p:PublishSingleFile=true
+      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
 
     - name: List output directory (debug)
       run: ls -l ./output  
