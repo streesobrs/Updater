@@ -23,7 +23,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 0   # 必须，用于生成 changelog
+        fetch-depth: 0
 
     # ---------------- version ----------------
     - name: Increment version
@@ -82,13 +82,11 @@ jobs:
           /p:PublishSingleFile=true
 
     - name: Verify executable
-      run: |
-        test -f ./output/Updater.exe
+      run: test -f ./output/Updater.exe
 
     # ---------------- package ----------------
-    - name: Generate checksums
-      run: |
-        sha256sum ./output/Updater.exe > ./output/Updater.exe.sha256
+    - name: Generate checksum
+      run: sha256sum ./output/Updater.exe > ./output/Updater.exe.sha256
 
     - name: Install 7zip
       run: sudo apt-get install -y p7zip-full
@@ -108,24 +106,23 @@ jobs:
       id: changelog
       run: |
         git fetch --tags
-
         LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
         if [ -z "$LAST_TAG" ]; then
-          LOG=$(git log --pretty=format:"- %s")
+          git log --pretty=format:"- %s" > changelog.txt
         else
-          LOG=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s")
+          git log ${LAST_TAG}..HEAD --pretty=format:"- %s" > changelog.txt
         fi
 
         echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        echo "$LOG" >> $GITHUB_OUTPUT
+        cat changelog.txt >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
-    # ---------------- release body (embedded template) ----------------
+    # ---------------- release body ----------------
     - name: Generate release body
       id: release_body
       run: |
-        body=$(cat <<'EOF'
-## 🚀 Updater v{{VERSION}}
+        cat > release_body.md <<EOF
+## 🚀 Updater v${{ steps.increment.outputs.new_version }}
 
 Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**，  
 用于在主程序退出后，安全地执行文件更新，并在完成后重新启动目标程序。
@@ -155,27 +152,22 @@ Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**，
 - 平台：Windows x64
 - 运行时：.NET 10.0
 - 构建方式：GitHub Actions 自动构建
-- 发布日期：{{DATE}}
+- 发布日期：${{ steps.increment.outputs.date }}
 
 ---
 
 ## 📝 本次更新内容
 
-{{CHANGELOG}}
+${{ steps.changelog.outputs.changelog }}
 
 ---
 
 🔐 所有发布文件均附带 SHA256 校验值  
 🤖 本版本由 GitHub Actions 自动生成并发布
 EOF
-)
-
-        body=${body//'{{VERSION}}'/'${{ steps.increment.outputs.new_version }}'}
-        body=${body//'{{DATE}}'/'${{ steps.increment.outputs.date }}'}
-        body=${body//'{{CHANGELOG}}'/"${{ steps.changelog.outputs.changelog }}"}
 
         echo "body<<EOF" >> $GITHUB_OUTPUT
-        echo "$body" >> $GITHUB_OUTPUT
+        cat release_body.md >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
     # ---------------- release ----------------
@@ -188,4 +180,4 @@ EOF
           update_info.json \
           ./output/Updater.exe.sha256 \
           --title "Release v${{ steps.increment.outputs.new_version }} (Windows)" \
-          --notes "${{ steps.release_body.outputs.body }}"
+          --notes-file release_body.md
