@@ -4,189 +4,198 @@ on:
   push:
     branches:
       - master
-      - main
   pull_request:
     branches:
       - master
-      - main
   workflow_dispatch:
-    inputs:
-      version_bump:
-        description: '版本号更新类型 (major/minor/patch)'
-        required: false
-        default: patch
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-
-env:
-  DOTNET_VERSION: '10.0.x'
-  RUNTIME_ID: 'win-x64'
-  CONFIGURATION: 'Release'
-  PROJECT_NAME: 'Updater'
-  OUTPUT_DIR: './publish'
-  ASSETS_DIR: './release-assets'
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
 
+    env:
+      DOTNET_VERSION: '10.0.x'
+      RUNTIME_ID: 'win-x64'
+      CONFIGURATION: 'Release'
+      PROJECT_PATH: Updater/Updater.csproj
+      OUTPUT_DIR: output
+
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Determine version
-        id: version
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            BUMP="${{ github.event.inputs.version_bump }}"
-          else
-            MSG="${{ github.event.head_commit.message }}"
-            if [[ "$MSG" =~ \[major\] ]]; then
-              BUMP="major"
-            elif [[ "$MSG" =~ \[minor\] ]]; then
-              BUMP="minor"
-            else
-              BUMP="patch"
-            fi
-          fi
+    # =========================
+    # Version Increment
+    # =========================
+    - name: Increment version
+      id: increment
+      run: |
+        if [ -f version.ini ]; then
+          version=$(grep -oP '^\d+\.\d+\.\d+' version.ini)
+        else
+          version="1.0.0"
+        fi
 
-          if [ -f version.ini ]; then
-            CUR=$(grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' version.ini)
-          else
-            CUR="1.0.0"
-          fi
+        IFS='.' read -r -a parts <<< "$version"
+        parts[2]=$((parts[2] + 1))
+        new_version="${parts[0]}.${parts[1]}.${parts[2]}"
+        date=$(date +'%Y-%m-%d')
 
-          IFS='.' read -r MA MI PA <<< "$CUR"
+        echo "$new_version ($date)" > version.ini
+        echo "new_version=$new_version" >> $GITHUB_OUTPUT
+        echo "date=$date" >> $GITHUB_OUTPUT
 
-          case "$BUMP" in
-            major) MA=$((MA+1)); MI=0; PA=0 ;;
-            minor) MI=$((MI+1)); PA=0 ;;
-            patch) PA=$((PA+1)) ;;
-          esac
+    - name: Commit version file
+      if: github.actor != 'github-actions[bot]'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        git config user.name 'github-actions[bot]'
+        git config user.email 'github-actions[bot]@users.noreply.github.com'
+        git add version.ini
+        git commit -m "Increment version to ${{ steps.increment.outputs.new_version }}"
+        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:master
 
-          NEW="$MA.$MI.$PA"
-          DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          TS=$(date +%s)
+    # =========================
+    # .NET Setup
+    # =========================
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
 
-          {
-            echo "new_version=$NEW"
-            echo "release_tag=v$NEW"
-            echo "build_date=$DATE"
-            echo "build_timestamp=$TS"
-            echo "bump_type=$BUMP"
-          } >> "$GITHUB_OUTPUT"
+    - name: Display .NET info
+      run: |
+        dotnet --info
+        dotnet --list-sdks
+        dotnet --list-runtimes
 
-      - name: Update version files
-        if: "!contains(github.event.head_commit.message, '[skip-version]')"
-        shell: bash
-        run: |
-          echo "${{ steps.version.outputs.new_version }} (${{ steps.version.outputs.build_date }})" > version.ini
+    - name: Cache NuGet packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
 
-          if [ -f "$PROJECT_NAME/$PROJECT_NAME.csproj" ]; then
-            sed -i "s|<Version>.*</Version>|<Version>${{ steps.version.outputs.new_version }}</Version>|" \
-              "$PROJECT_NAME/$PROJECT_NAME.csproj"
-          fi
+    - name: Restore dependencies
+      run: dotnet restore ${{ env.PROJECT_PATH }}
 
-      - name: Commit version bump
-        if: github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-version]')
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add version.ini "$PROJECT_NAME/$PROJECT_NAME.csproj" || true
-          git diff --cached --quiet || {
-            git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }} [skip ci]"
-            git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git \
-              HEAD:${{ github.ref_name }}
-          }
+    # =========================
+    # Build / Test / Publish
+    # =========================
+    - name: Build
+      run: |
+        dotnet build ${{ env.PROJECT_PATH }} \
+          --configuration ${{ env.CONFIGURATION }} \
+          --no-restore \
+          -p:Version=${{ steps.increment.outputs.new_version }}
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+    - name: Run tests (if any)
+      continue-on-error: true
+      run: |
+        dotnet test ${{ env.PROJECT_PATH }} --no-build --verbosity normal
 
-      - name: Restore
-        run: dotnet restore $PROJECT_NAME/$PROJECT_NAME.csproj
+    - name: Publish for Windows
+      run: |
+        dotnet publish ${{ env.PROJECT_PATH }} \
+          --configuration ${{ env.CONFIGURATION }} \
+          --no-build \
+          -r ${{ env.RUNTIME_ID }} \
+          --self-contained false \
+          -p:Version=${{ steps.increment.outputs.new_version }} \
+          -p:PublishSingleFile=true \
+          -p:IncludeNativeLibrariesForSelfExtract=true \
+          --output ${{ env.OUTPUT_DIR }}
 
-      - name: Build
-        run: dotnet build $PROJECT_NAME/$PROJECT_NAME.csproj -c ${{ env.CONFIGURATION }} --no-restore
+    - name: Verify executable
+      run: |
+        if [ ! -f "${{ env.OUTPUT_DIR }}/Updater.exe" ]; then
+          echo "Updater.exe not found"
+          exit 1
+        fi
+        echo "Executable OK"
+        du -h ${{ env.OUTPUT_DIR }}/Updater.exe
 
-      - name: Test
-        run: dotnet test $PROJECT_NAME/$PROJECT_NAME.csproj --no-build || true
+    # =========================
+    # Checksums
+    # =========================
+    - name: Generate checksums
+      run: |
+        sha256sum ${{ env.OUTPUT_DIR }}/Updater.exe > ${{ env.OUTPUT_DIR }}/Updater.exe.sha256
+        md5sum ${{ env.OUTPUT_DIR }}/Updater.exe > ${{ env.OUTPUT_DIR }}/Updater.exe.md5
 
-      - name: Publish
-        run: |
-          dotnet publish $PROJECT_NAME/$PROJECT_NAME.csproj \
-            -c ${{ env.CONFIGURATION }} \
-            -r ${{ env.RUNTIME_ID }} \
-            --self-contained false \
-            -o ${{ env.OUTPUT_DIR }} \
-            /p:PublishSingleFile=true
+    # =========================
+    # Package update.zip
+    # =========================
+    - name: Install 7zip
+      run: sudo apt-get install -y p7zip-full
 
-      - name: Collect file info
-        id: fileinfo
-        shell: bash
-        run: |
-          EXE="${{ env.OUTPUT_DIR }}/${{ env.PROJECT_NAME }}.exe"
-          test -f "$EXE"
+    - name: Create update.zip
+      run: |
+        7z a update.zip ${{ env.OUTPUT_DIR }}/Updater.exe
 
-          SIZE=$(stat -c%s "$EXE")
-          SHA=$(sha256sum "$EXE" | cut -d' ' -f1)
+    - name: Generate update_info.json
+      run: |
+        cat > ${{ env.OUTPUT_DIR }}/update_info.json <<EOF
+        {
+          "name": "Updater",
+          "version": "${{ steps.increment.outputs.new_version }}",
+          "publishedAt": "${{ steps.increment.outputs.date }}",
+          "platform": "windows-x64",
+          "updateUrl": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip",
+          "checksum": "Updater.exe.sha256"
+        }
+        EOF
 
-          {
-            echo "size=$SIZE"
-            echo "sha256=$SHA"
-          } >> "$GITHUB_OUTPUT"
+    # =========================
+    # Release
+    # =========================
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.increment.outputs.new_version }}
+        release_name: Release v${{ steps.increment.outputs.new_version }} (Windows)
+        draft: false
+        prerelease: false
+        body: |
+          ## 🚀 Updater v${{ steps.increment.outputs.new_version }}
 
-          echo "$SHA  $PROJECT_NAME.exe" > "$EXE.sha256"
+          - Windows x64 单文件可执行程序
+          - .NET 10.0
+          - 自动构建 & 发布
 
-      - name: Prepare assets
-        shell: bash
-        run: |
-          mkdir -p "${{ env.ASSETS_DIR }}"
-          cp "${{ env.OUTPUT_DIR }}"/* "${{ env.ASSETS_DIR }}/"
-          7z a "${{ env.ASSETS_DIR }}/update.zip" \
-            "${{ env.OUTPUT_DIR }}/${{ env.PROJECT_NAME }}.exe"
+          **发布日期**：${{ steps.increment.outputs.date }}
 
-      - name: Generate update_info.json
-        shell: bash
-        run: |
-          cat > "${{ env.ASSETS_DIR }}/update_info.json" <<'EOF'
-{
-  "name": "Updater",
-  "version": "${{ steps.version.outputs.new_version }}",
-  "build": "${{ steps.version.outputs.build_timestamp }}",
-  "sha256": "${{ steps.fileinfo.outputs.sha256 }}"
-}
-EOF
+    - name: Upload update.zip
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./update.zip
+        asset_name: update.zip
+        asset_content_type: application/zip
 
-      - name: Validate JSON
-        run: python3 -c "import json;json.load(open('${{ env.ASSETS_DIR }}/update_info.json'))"
+    - name: Upload update_info.json
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ env.OUTPUT_DIR }}/update_info.json
+        asset_name: update_info.json
+        asset_content_type: application/json
 
-      - name: Create GitHub Release
-        if: github.event_name != 'pull_request'
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.version.outputs.release_tag }}
-          name: Release ${{ steps.version.outputs.release_tag }}
-          body: |
-            🚀 Updater ${{ steps.version.outputs.new_version }}
-            Build time: ${{ steps.version.outputs.build_date }}
-          files: |
-            ${{ env.ASSETS_DIR }}/*
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-output
-          path: |
-            ${{ env.OUTPUT_DIR }}
-            ${{ env.ASSETS_DIR }}
+    - name: Upload checksums
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ env.OUTPUT_DIR }}/Updater.exe.sha256
+        asset_name: Updater.exe.sha256
+        asset_content_type: text/plain
