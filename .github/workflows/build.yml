@@ -2,11 +2,9 @@ name: Build, Package, and Release for Windows
 
 on:
   push:
-    branches:
-      - master
+    branches: [ master ]
   pull_request:
-    branches:
-      - master
+    branches: [ master ]
   workflow_dispatch:
 
 jobs:
@@ -41,8 +39,8 @@ jobs:
         date=$(date +'%Y-%m-%d')
 
         echo "$new_version ($date)" > version.ini
-        echo "new_version=$new_version" >> $GITHUB_OUTPUT
-        echo "date=$date" >> $GITHUB_OUTPUT
+        echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
+        echo "date=$date" >> "$GITHUB_OUTPUT"
 
     - name: Commit version file
       if: "!contains(github.event.head_commit.message, 'Increment version')"
@@ -96,10 +94,12 @@ jobs:
 
     - name: Generate update_info.json
       run: |
-        echo "{
-          \"version\": \"${{ steps.increment.outputs.new_version }}\",
-          \"updateUrl\": \"https://github.com/${{ github.repository }}/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip\"
-        }" > update_info.json
+        cat > update_info.json <<EOF
+{
+  "version": "${{ steps.increment.outputs.new_version }}",
+  "updateUrl": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
+}
+EOF
 
     # ---------------- changelog ----------------
     - name: Generate changelog
@@ -110,19 +110,23 @@ jobs:
         if [ -z "$LAST_TAG" ]; then
           git log --pretty=format:"- %s" > changelog.txt
         else
-          git log ${LAST_TAG}..HEAD --pretty=format:"- %s" > changelog.txt
+          git log "$LAST_TAG"..HEAD --pretty=format:"- %s" > changelog.txt
         fi
 
-        echo "changelog<<EOF" >> $GITHUB_OUTPUT
-        cat changelog.txt >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+        cat changelog.txt >> "$GITHUB_OUTPUT"
+        echo "EOF" >> "$GITHUB_OUTPUT"
 
     # ---------------- release body ----------------
     - name: Generate release body
       id: release_body
+      env:
+        VERSION: ${{ steps.increment.outputs.new_version }}
+        DATE: ${{ steps.increment.outputs.date }}
+        CHANGELOG: ${{ steps.changelog.outputs.changelog }}
       run: |
         cat > release_body.md <<EOF
-## 🚀 Updater v${{ steps.increment.outputs.new_version }}
+## 🚀 Updater v$VERSION
 
 Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**，  
 用于在主程序退出后，安全地执行文件更新，并在完成后重新启动目标程序。
@@ -152,13 +156,13 @@ Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**，
 - 平台：Windows x64
 - 运行时：.NET 10.0
 - 构建方式：GitHub Actions 自动构建
-- 发布日期：${{ steps.increment.outputs.date }}
+- 发布日期：$DATE
 
 ---
 
 ## 📝 本次更新内容
 
-${{ steps.changelog.outputs.changelog }}
+$CHANGELOG
 
 ---
 
@@ -166,16 +170,12 @@ ${{ steps.changelog.outputs.changelog }}
 🤖 本版本由 GitHub Actions 自动生成并发布
 EOF
 
-        echo "body<<EOF" >> $GITHUB_OUTPUT
-        cat release_body.md >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
-
     # ---------------- release ----------------
     - name: Create GitHub Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        gh release create v${{ steps.increment.outputs.new_version }} \
+        gh release create "v${{ steps.increment.outputs.new_version }}" \
           update.zip \
           update_info.json \
           ./output/Updater.exe.sha256 \
