@@ -17,16 +17,14 @@ jobs:
       DOTNET_VERSION: '10.0.x'
       RUNTIME_ID: 'win-x64'
       CONFIGURATION: 'Release'
-      PROJECT_PATH: Updater/Updater.csproj
-      OUTPUT_DIR: output
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0   # 必须，用于生成 changelog
 
-    # =========================
-    # Version Increment
-    # =========================
+    # ---------------- version ----------------
     - name: Increment version
       id: increment
       run: |
@@ -46,111 +44,95 @@ jobs:
         echo "date=$date" >> $GITHUB_OUTPUT
 
     - name: Commit version file
-      if: github.actor != 'github-actions[bot]'
+      if: "!contains(github.event.head_commit.message, 'Increment version')"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        git config user.name 'github-actions[bot]'
-        git config user.email 'github-actions[bot]@users.noreply.github.com'
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
         git add version.ini
         git commit -m "Increment version to ${{ steps.increment.outputs.new_version }}"
-        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:master
+        git push
 
-    # =========================
-    # .NET Setup
-    # =========================
+    # ---------------- dotnet ----------------
     - name: Set up .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
-    - name: Display .NET info
-      run: |
-        dotnet --info
-        dotnet --list-sdks
-        dotnet --list-runtimes
-
-    - name: Cache NuGet packages
-      uses: actions/cache@v3
-      with:
-        path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-        restore-keys: |
-          ${{ runner.os }}-nuget-
-
     - name: Restore dependencies
-      run: dotnet restore ${{ env.PROJECT_PATH }}
+      run: dotnet restore Updater/Updater.csproj
 
-    # =========================
-    # Build / Test / Publish
-    # =========================
+    - name: Update version in csproj
+      run: |
+        sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
+
     - name: Build
-      run: |
-        dotnet build ${{ env.PROJECT_PATH }} \
-          --configuration ${{ env.CONFIGURATION }} \
-          --no-restore \
-          -p:Version=${{ steps.increment.outputs.new_version }}
+      run: dotnet build Updater/Updater.csproj --configuration ${{ env.CONFIGURATION }} --no-restore
 
-    - name: Run tests (if any)
-      continue-on-error: true
+    - name: Publish
       run: |
-        dotnet test ${{ env.PROJECT_PATH }} --no-build --verbosity normal
-
-    - name: Publish for Windows
-      run: |
-        dotnet publish ${{ env.PROJECT_PATH }} \
+        dotnet publish Updater/Updater.csproj \
           --configuration ${{ env.CONFIGURATION }} \
           --no-build \
-          -r ${{ env.RUNTIME_ID }} \
+          --output ./output \
           --self-contained false \
-          -p:Version=${{ steps.increment.outputs.new_version }} \
-          -p:PublishSingleFile=true \
-          -p:IncludeNativeLibrariesForSelfExtract=true \
-          --output ${{ env.OUTPUT_DIR }}
+          -r ${{ env.RUNTIME_ID }} \
+          /p:PublishSingleFile=true
 
     - name: Verify executable
       run: |
-        if [ ! -f "${{ env.OUTPUT_DIR }}/Updater.exe" ]; then
-          echo "Updater.exe not found"
-          exit 1
-        fi
-        echo "Executable OK"
-        du -h ${{ env.OUTPUT_DIR }}/Updater.exe
+        test -f ./output/Updater.exe
 
-    # =========================
-    # Checksums
-    # =========================
+    # ---------------- package ----------------
     - name: Generate checksums
       run: |
-        sha256sum ${{ env.OUTPUT_DIR }}/Updater.exe > ${{ env.OUTPUT_DIR }}/Updater.exe.sha256
-        md5sum ${{ env.OUTPUT_DIR }}/Updater.exe > ${{ env.OUTPUT_DIR }}/Updater.exe.md5
+        sha256sum ./output/Updater.exe > ./output/Updater.exe.sha256
 
-    # =========================
-    # Package update.zip
-    # =========================
     - name: Install 7zip
       run: sudo apt-get install -y p7zip-full
 
     - name: Create update.zip
-      run: |
-        7z a update.zip ${{ env.OUTPUT_DIR }}/Updater.exe
+      run: 7z a update.zip ./output/Updater.exe
 
     - name: Generate update_info.json
       run: |
-        cat > ${{ env.OUTPUT_DIR }}/update_info.json <<EOF
-        {
-          "name": "Updater",
-          "version": "${{ steps.increment.outputs.new_version }}",
-          "publishedAt": "${{ steps.increment.outputs.date }}",
-          "platform": "windows-x64",
-          "updateUrl": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip",
-          "checksum": "Updater.exe.sha256"
-        }
-        EOF
+        echo "{
+          \"version\": \"${{ steps.increment.outputs.new_version }}\",
+          \"updateUrl\": \"https://github.com/${{ github.repository }}/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip\"
+        }" > update_info.json
 
-    # =========================
-    # Release
-    # =========================
+    # ---------------- release notes ----------------
+    - name: Generate changelog
+      id: changelog
+      run: |
+        git fetch --tags
+
+        LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+        if [ -z "$LAST_TAG" ]; then
+          LOG=$(git log --pretty=format:"- %s")
+        else
+          LOG=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s")
+        fi
+
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$LOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Generate release body
+      id: release_body
+      run: |
+        body=$(cat RELEASE_TEMPLATE.md)
+
+        body=${body//'{{VERSION}}'/'${{ steps.increment.outputs.new_version }}'}
+        body=${body//'{{DATE}}'/'${{ steps.increment.outputs.date }}'}
+        body=${body//'{{CHANGELOG}}'/"${{ steps.changelog.outputs.changelog }}"}
+
+        echo "body<<EOF" >> $GITHUB_OUTPUT
+        echo "$body" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    # ---------------- release ----------------
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
@@ -159,16 +141,9 @@ jobs:
       with:
         tag_name: v${{ steps.increment.outputs.new_version }}
         release_name: Release v${{ steps.increment.outputs.new_version }} (Windows)
+        body: ${{ steps.release_body.outputs.body }}
         draft: false
         prerelease: false
-        body: |
-          ## 🚀 Updater v${{ steps.increment.outputs.new_version }}
-
-          - Windows x64 单文件可执行程序
-          - .NET 10.0
-          - 自动构建 & 发布
-
-          **发布日期**：${{ steps.increment.outputs.date }}
 
     - name: Upload update.zip
       uses: actions/upload-release-asset@v1
@@ -186,16 +161,16 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ${{ env.OUTPUT_DIR }}/update_info.json
+        asset_path: ./update_info.json
         asset_name: update_info.json
         asset_content_type: application/json
 
-    - name: Upload checksums
+    - name: Upload checksum
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ${{ env.OUTPUT_DIR }}/Updater.exe.sha256
+        asset_path: ./output/Updater.exe.sha256
         asset_name: Updater.exe.sha256
         asset_content_type: text/plain
