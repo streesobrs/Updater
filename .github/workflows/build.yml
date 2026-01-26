@@ -62,10 +62,10 @@ jobs:
         sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
 
     - name: Build for Windows
-      run: dotnet build Updater/Updater.csproj --configuration Release --no-restore --runtime win-x64
+      run: dotnet build Updater/Updater.csproj --configuration Release --no-restore
 
     - name: Publish for Windows
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --self-contained false /p:PublishSingleFile=true
+      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --self-contained false /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true
 
     - name: List output directory (debug)
       run: ls -l ./output  
