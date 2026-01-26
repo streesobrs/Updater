@@ -4,10 +4,20 @@ on:
   push:
     branches:
       - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:  # 允许手动触发构建
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    
+    # 添加环境变量
+    env:
+      DOTNET_VERSION: '10.0.x'
+      RUNTIME_ID: 'win-x64'
+      CONFIGURATION: 'Release'
 
     steps:
     - name: Checkout repository
@@ -43,7 +53,16 @@ jobs:
     - name: Set up .NET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: '10.0.x'
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Setup .NET Core SDK tools
+      run: dotnet tool install -g dotnet-reportgenerator-globaltool
+    
+    - name: Display .NET version info
+      run: |
+        dotnet --info
+        dotnet --list-sdks
+        dotnet --list-runtimes
 
     - name: Cache .NET dependencies
       uses: actions/cache@v3
@@ -61,10 +80,22 @@ jobs:
         sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
 
     - name: Build for Windows
-      run: dotnet build Updater/Updater.csproj --configuration Release --no-restore
+      run: dotnet build Updater/Updater.csproj --configuration ${{ env.CONFIGURATION }} --no-restore
+
+    - name: Run unit tests (if any)
+      if: always()
+      run: dotnet test --no-build --verbosity normal --logger trx --results-directory ./test-results
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results
+        path: test-results/
+        retention-days: 30
 
     - name: Publish for Windows
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --self-contained false /p:PublishSingleFile=true -r win-x64
+      run: dotnet publish Updater/Updater.csproj --configuration ${{ env.CONFIGURATION }} --no-build --output ./output --self-contained false /p:PublishSingleFile=true -r ${{ env.RUNTIME_ID }}
 
     - name: List output directories (debug)
       run: |
@@ -75,10 +106,36 @@ jobs:
       run: |
         if [ -f "./output/Updater.exe" ]; then
           echo "Windows executable found"
+          echo "File size: $(du -h ./output/Updater.exe | cut -f1)"
         else
           echo "Windows executable not found"
           exit 1
         fi
+
+    - name: Generate file checksums
+      run: |
+        echo "=== File Checksums ==="
+        sha256sum ./output/Updater.exe > ./output/Updater.exe.sha256
+        md5sum ./output/Updater.exe > ./output/Updater.exe.md5
+        cat ./output/Updater.exe.sha256
+        cat ./output/Updater.exe.md5
+
+    - name: Security scan with trivy (optional)
+      if: always()
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: './output'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload security scan results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-scan-results
+        path: trivy-results.sarif
+        retention-days: 30
 
     - name: Install 7zip
       run: sudo apt-get install -y p7zip-full
@@ -159,4 +216,41 @@ jobs:
         asset_path: ./update_info.json
         asset_name: update_info.json
         asset_content_type: application/json
+
+    - name: Upload checksums to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用自定义令牌
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./output/Updater.exe.sha256
+        asset_name: Updater.exe.sha256
+        asset_content_type: text/plain
+
+    - name: Upload md5 checksum to Release
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用自定义令牌
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./output/Updater.exe.md5
+        asset_name: Updater.exe.md5
+        asset_content_type: text/plain
+
+    - name: Upload executable as artifact (for debugging)
+      uses: actions/upload-artifact@v4
+      with:
+        name: updater-executable
+        path: ./output/Updater.exe
+        retention-days: 7
+
+    - name: Send build notification (optional)
+      if: success()
+      uses: 8398a7/action-slack@v3
+      with:
+        status: ${{ job.status }}
+        channel: '#builds'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
     
