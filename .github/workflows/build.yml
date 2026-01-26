@@ -61,35 +61,62 @@ jobs:
       run: |
         sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
 
-    - name: Build for Windows
+    - name: Build for Windows (GUI Version)
       run: dotnet build Updater/Updater.csproj --configuration Release --no-restore
 
-    - name: Publish for Windows
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --self-contained false /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true
+    - name: Publish for Windows (GUI Version)
+      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output-gui --self-contained false /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true
 
-    - name: List output directory (debug)
-      run: ls -l ./output  
+    - name: Build for Windows (Console Version)
+      run: dotnet build Updater.Console/Updater.Console.csproj --configuration Release --no-restore
 
-    - name: Verify executable exists
+    - name: Publish for Windows (Console Version)
+      run: dotnet publish Updater.Console/Updater.Console.csproj --configuration Release --no-build --output ./output-console --self-contained false /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true
+
+    - name: List output directories (debug)
       run: |
-        if [ -f "./output/Updater.exe" ]; then
-          echo "Windows executable found"
+        echo "=== GUI Version ==="
+        ls -l ./output-gui
+        echo "=== Console Version ==="
+        ls -l ./output-console
+
+    - name: Verify executables exist
+      run: |
+        if [ -f "./output-gui/Updater.exe" ]; then
+          echo "GUI Windows executable found"
         else
-          echo "Windows executable not found"
+          echo "GUI Windows executable not found"
+          exit 1
+        fi
+        
+        if [ -f "./output-console/Updater.Console.exe" ]; then
+          echo "Console Windows executable found"
+        else
+          echo "Console Windows executable not found"
           exit 1
         fi
 
     - name: Install 7zip
       run: sudo apt-get install -y p7zip-full
 
-    - name: Create update.zip (仅包含单文件)
-      run: 7z a -tzip update.zip ./output/Updater.exe
+    - name: Create update.zip files (包含两个版本)
+      run: |
+        # 创建GUI版本压缩包
+        7z a -tzip update_gui.zip ./output-gui/Updater.exe
+        
+        # 创建控制台版本压缩包
+        7z a -tzip update_console.zip ./output-console/Updater.Console.exe
+        
+        # 创建包含两个版本的压缩包
+        7z a -tzip update_all.zip ./output-gui/Updater.exe ./output-console/Updater.Console.exe
 
     - name: Generate update_info.json
       run: |
         echo '{
           "version": "${{ steps.increment.outputs.new_version }}",
-          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
+          "guiUpdateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update_gui.zip",
+          "consoleUpdateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update_console.zip",
+          "allUpdateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update_all.zip"
         }' > update_info.json
 
 

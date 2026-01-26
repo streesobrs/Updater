@@ -298,7 +298,7 @@ namespace Updater
     /// <summary>
     /// 主程序类 - 负责程序更新功能
     /// </summary>
-    class Program
+    public class Program
     {
         // 日志级别枚举
         public enum LogLevel
@@ -324,10 +324,11 @@ namespace Updater
         private static string _backupDir = null;
 
         /// <summary>
-        /// 程序入口点
+        /// 可调用的运行方法，供控制台版本使用
         /// </summary>
         /// <param name="args">命令行参数</param>
-        static void Main(string[] args)
+        /// <returns>异步任务</returns>
+        public static async Task Run(string[] args)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -351,7 +352,16 @@ namespace Updater
                 }
             }
 
-            MainAsync(args).GetAwaiter().GetResult();
+            await MainAsync(args);
+        }
+
+        /// <summary>
+        /// 程序入口点
+        /// </summary>
+        /// <param name="args">命令行参数</param>
+        static void Main(string[] args)
+        {
+            Run(args).GetAwaiter().GetResult();
         }
 
         /// <summary>
