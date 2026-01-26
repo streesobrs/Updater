@@ -58,64 +58,41 @@ jobs:
 
     - name: Update version in .csproj
       run: |
-        sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater.csproj
+        sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
 
-    - name: Build for Windows (GUI Version)
-      run: dotnet build Updater.csproj --configuration Release --no-restore
+    - name: Build for Windows
+      run: dotnet build Updater/Updater.csproj --configuration Release --no-restore
 
-    - name: Publish for Windows (GUI Version)
-      run: dotnet publish Updater.csproj --configuration Release --no-build --output ./output-gui --self-contained false /p:PublishSingleFile=true -r win-x64
-
-    - name: Build for Windows (Console Version)
-      run: dotnet build Updater.Console.csproj --configuration Release --no-restore
-
-    - name: Publish for Windows (Console Version)
-      run: dotnet publish Updater.Console.csproj --configuration Release --no-build --output ./output-console --self-contained false /p:PublishSingleFile=true -r win-x64
+    - name: Publish for Windows
+      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --self-contained false /p:PublishSingleFile=true -r win-x64
 
     - name: List output directories (debug)
       run: |
-        echo "=== GUI Version ==="
-        ls -l ./output-gui
-        echo "=== Console Version ==="
-        ls -l ./output-console
+        echo "=== Output Directory ==="
+        ls -l ./output
 
-    - name: Verify executables exist
+    - name: Verify executable exists
       run: |
-        if [ -f "./output-gui/Updater.exe" ]; then
-          echo "GUI Windows executable found"
+        if [ -f "./output/Updater.exe" ]; then
+          echo "Windows executable found"
         else
-          echo "GUI Windows executable not found"
-          exit 1
-        fi
-        
-        if [ -f "./output-console/Updater.Console.exe" ]; then
-          echo "Console Windows executable found"
-        else
-          echo "Console Windows executable not found"
+          echo "Windows executable not found"
           exit 1
         fi
 
     - name: Install 7zip
       run: sudo apt-get install -y p7zip-full
 
-    - name: Create update.zip files (包含两个版本)
+    - name: Create update.zip file
       run: |
-        # 创建GUI版本压缩包
-        7z a -tzip update_gui.zip ./output-gui/Updater.exe
-        
-        # 创建控制台版本压缩包
-        7z a -tzip update_console.zip ./output-console/Updater.Console.exe
-        
-        # 创建包含两个版本的压缩包
-        7z a -tzip update_all.zip ./output-gui/Updater.exe ./output-console/Updater.Console.exe
+        # 创建压缩包
+        7z a -tzip update.zip ./output/Updater.exe
 
     - name: Generate update_info.json
       run: |
         echo '{
           "version": "${{ steps.increment.outputs.new_version }}",
-          "guiUpdateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update_gui.zip",
-          "consoleUpdateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update_console.zip",
-          "allUpdateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update_all.zip"
+          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
         }' > update_info.json
 
 
@@ -135,7 +112,6 @@ jobs:
           
           - ✅ **程序更新工具** - 专业的软件更新解决方案
           - ✅ **多种更新模式** - 支持ZIP、安装包、增量更新
-          - ✅ **GUI图形界面** - 直观易用的图形操作界面
           - ✅ **命令行支持** - 支持自动化脚本集成
           - ✅ **错误处理** - 完善的异常处理和回滚机制
           - ✅ **日志记录** - 详细的运行日志和调试信息
@@ -145,18 +121,6 @@ jobs:
           ### 命令行模式
           ```bash
           Updater.exe "主程序.exe" "更新包.zip" "目标目录" false zip
-          ```
-          
-          ### GUI模式
-          ```bash
-          Updater.exe --gui
-          # 或
-          Updater.exe -g
-          ```
-          
-          ### GUI模式 + 参数自动填充
-          ```bash
-          Updater.exe "主程序.exe" "更新包.zip" "目标目录" false zip -g
           ```
           
           ## 🔧 系统要求
