@@ -58,19 +58,19 @@ jobs:
 
     - name: Update version in .csproj
       run: |
-        sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
+        sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater.csproj
 
     - name: Build for Windows (GUI Version)
-      run: dotnet build Updater/Updater.csproj --configuration Release --no-restore
+      run: dotnet build Updater.csproj --configuration Release --no-restore
 
     - name: Publish for Windows (GUI Version)
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output-gui --self-contained false /p:PublishSingleFile=true -r win-x64
+      run: dotnet publish Updater.csproj --configuration Release --no-build --output ./output-gui --self-contained false /p:PublishSingleFile=true -r win-x64
 
     - name: Build for Windows (Console Version)
-      run: dotnet build Updater.Console/Updater.Console.csproj --configuration Release --no-restore
+      run: dotnet build Updater.Console.csproj --configuration Release --no-restore
 
     - name: Publish for Windows (Console Version)
-      run: dotnet publish Updater.Console/Updater.Console.csproj --configuration Release --no-build --output ./output-console --self-contained false /p:PublishSingleFile=true -r win-x64
+      run: dotnet publish Updater.Console.csproj --configuration Release --no-build --output ./output-console --self-contained false /p:PublishSingleFile=true -r win-x64
 
     - name: List output directories (debug)
       run: |
