@@ -12,7 +12,6 @@
 		<PublishTrimmed>true</PublishTrimmed>
 		<AssemblyName>Updater</AssemblyName>
 		<LangVersion>latest</LangVersion>
-		<UseWindowsForms>true</UseWindowsForms>
 		<EnableWindowsTargeting>true</EnableWindowsTargeting>
 		
 		<CodePage>65001</CodePage>
