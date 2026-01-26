@@ -65,7 +65,7 @@ jobs:
       run: dotnet build Updater/Updater.csproj --configuration Release --no-restore --runtime win-x64
 
     - name: Publish for Windows
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained true /p:PublishSingleFile=true /p:IncludeNativeLibrariesForSelfExtract=true
+      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained false /p:PublishSingleFile=true
 
     - name: List output directory (debug)
       run: ls -l ./output  
