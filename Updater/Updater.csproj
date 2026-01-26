@@ -14,6 +14,7 @@
 		<AssemblyName>Updater</AssemblyName>
 		<LangVersion>latest</LangVersion>
 		<UseWindowsForms>true</UseWindowsForms>
+		<EnableWindowsTargeting>true</EnableWindowsTargeting>
 		
 		<CodePage>65001</CodePage>
 		<!-- 添加这一行以确保使用 UTF-8 编码 -->
