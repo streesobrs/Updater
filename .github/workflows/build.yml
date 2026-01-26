@@ -219,8 +219,8 @@ jobs:
           ZIP_SIZE_MB=0
         fi
 
-        # 生成 JSON 文件 - 使用简单的格式
-        cat > ${{ env.ASSETS_DIR }}/update_info.json << 'EOF' 
+        # 生成 JSON 文件 - 修正版
+        cat > "${{ env.ASSETS_DIR }}/update_info.json" << EOF
 {
   "application": {
     "name": "Updater",
@@ -261,19 +261,8 @@ jobs:
   }
 }
 EOF
-
-        # 现在替换变量
-        sed -i "s/\\\${{ steps.version.outputs.new_version }}/${{ steps.version.outputs.new_version }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s/\\\${{ steps.version.outputs.build_timestamp }}/${{ steps.version.outputs.build_timestamp }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s/\\\${{ steps.version.outputs.release_tag }}/${{ steps.version.outputs.release_tag }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s/\\\${{ steps.version.outputs.build_date }}/${{ steps.version.outputs.build_date }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s/\\\${{ steps.version.outputs.bump_type }}/${{ steps.version.outputs.bump_type }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s/\\\${{ steps.file_info.outputs.file_size }}/${{ steps.file_info.outputs.file_size }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s/\\\${{ steps.file_info.outputs.file_size_mb }}/${{ steps.file_info.outputs.file_size_mb }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s/\\\${{ steps.file_info.outputs.sha256 }}/${{ steps.file_info.outputs.sha256 }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s/\\\${{ steps.file_info.outputs.md5 }}/${{ steps.file_info.outputs.md5 }}/g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s|\\\${{ github.repository }}|${{ github.repository }}|g" ${{ env.ASSETS_DIR }}/update_info.json
-        sed -i "s|\\\$COMMIT_HASH|$COMMIT_HASH|g" ${{ env.ASSETS_DIR }}/update_info.json
+        
+        echo "Generated update_info.json"
 
     - name: Validate JSON
       run: |
