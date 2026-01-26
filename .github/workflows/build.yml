@@ -17,13 +17,11 @@ jobs:
       CONFIGURATION: 'Release'
 
     steps:
-    # ---------------- checkout ----------------
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
-    # ---------------- version ----------------
     - name: Increment version
       id: increment
       run: |
@@ -53,7 +51,6 @@ jobs:
         git commit -m "Increment version to ${{ steps.increment.outputs.new_version }}"
         git push
 
-    # ---------------- dotnet ----------------
     - name: Set up .NET
       uses: actions/setup-dotnet@v4
       with:
@@ -62,46 +59,31 @@ jobs:
     - name: Restore dependencies
       run: dotnet restore Updater/Updater.csproj
 
-    - name: Update version in csproj
-      run: |
-        sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
-
     - name: Build
-      run: dotnet build Updater/Updater.csproj --configuration ${{ env.CONFIGURATION }} --no-restore
+      run: dotnet build Updater/Updater.csproj --configuration ${{ env.CONFIGURATION }}
 
     - name: Publish
       run: |
         dotnet publish Updater/Updater.csproj \
-          --configuration ${{ env.CONFIGURATION }} \
-          --no-build \
-          --output ./output \
-          --self-contained false \
+          -c ${{ env.CONFIGURATION }} \
           -r ${{ env.RUNTIME_ID }} \
-          /p:PublishSingleFile=true
+          --self-contained false \
+          -p:PublishSingleFile=true \
+          -o output
 
-    - name: Verify executable
-      run: test -f ./output/Updater.exe
-
-    # ---------------- package ----------------
-    - name: Generate checksum
-      run: sha256sum ./output/Updater.exe > ./output/Updater.exe.sha256
-
-    - name: Install 7zip
-      run: sudo apt-get install -y p7zip-full
-
-    - name: Create update.zip
-      run: 7z a update.zip ./output/Updater.exe
+    - name: Package
+      run: |
+        sha256sum output/Updater.exe > output/Updater.exe.sha256
+        sudo apt-get install -y p7zip-full
+        7z a update.zip output/Updater.exe
 
     - name: Generate update_info.json
       run: |
-        cat > update_info.json <<EOF
-{
-  "version": "${{ steps.increment.outputs.new_version }}",
-  "updateUrl": "https://github.com/${{ github.repository }}/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
-}
-EOF
+        printf '{\n  "version": "%s",\n  "updateUrl": "https://github.com/%s/releases/download/v%s/update.zip"\n}\n' \
+        "${{ steps.increment.outputs.new_version }}" \
+        "${{ github.repository }}" \
+        "${{ steps.increment.outputs.new_version }}" > update_info.json
 
-    # ---------------- changelog ----------------
     - name: Generate changelog
       id: changelog
       run: |
@@ -117,60 +99,13 @@ EOF
         cat changelog.txt >> "$GITHUB_OUTPUT"
         echo "EOF" >> "$GITHUB_OUTPUT"
 
-    # ---------------- release body ----------------
     - name: Generate release body
-      id: release_body
-      env:
-        VERSION: ${{ steps.increment.outputs.new_version }}
-        DATE: ${{ steps.increment.outputs.date }}
-        CHANGELOG: ${{ steps.changelog.outputs.changelog }}
       run: |
-        cat > release_body.md <<EOF
-## 🚀 Updater v$VERSION
+        printf "## 🚀 Updater v%s\n\n" "${{ steps.increment.outputs.new_version }}" > release_body.md
+        printf "Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**。\n\n" >> release_body.md
+        printf "### 📝 本次更新内容\n\n" >> release_body.md
+        cat changelog.txt >> release_body.md
 
-Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**，  
-用于在主程序退出后，安全地执行文件更新，并在完成后重新启动目标程序。
-
----
-
-### 🔧 核心能力
-
-- 支持 ZIP / 安装包 / 增量三种更新模式
-- 自动处理文件占用与权限问题
-- 更新失败可追踪（日志输出）
-- 内置测试模式，支持异常与性能验证
-
----
-
-### 🧭 适用场景
-
-- 桌面程序自动更新
-- 启动器 / 更新器
-- 内部工具分发
-- 绿色软件更新
-
----
-
-### 📦 构建信息
-
-- 平台：Windows x64
-- 运行时：.NET 10.0
-- 构建方式：GitHub Actions 自动构建
-- 发布日期：$DATE
-
----
-
-## 📝 本次更新内容
-
-$CHANGELOG
-
----
-
-🔐 所有发布文件均附带 SHA256 校验值  
-🤖 本版本由 GitHub Actions 自动生成并发布
-EOF
-
-    # ---------------- release ----------------
     - name: Create GitHub Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -178,6 +113,6 @@ EOF
         gh release create "v${{ steps.increment.outputs.new_version }}" \
           update.zip \
           update_info.json \
-          ./output/Updater.exe.sha256 \
+          output/Updater.exe.sha256 \
           --title "Release v${{ steps.increment.outputs.new_version }} (Windows)" \
           --notes-file release_body.md
