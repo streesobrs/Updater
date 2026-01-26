@@ -65,7 +65,7 @@ jobs:
       run: dotnet build Updater/Updater.csproj --configuration Release --no-restore --runtime win-x64
 
     - name: Publish for Windows
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --runtime win-x64 --self-contained false /p:PublishSingleFile=true
+      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output --self-contained false /p:PublishSingleFile=true
 
     - name: List output directory (debug)
       run: ls -l ./output  
@@ -92,16 +92,72 @@ jobs:
           "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
         }' > update_info.json
 
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用自定义令牌
-      with:
-        tag_name: v${{ steps.increment.outputs.new_version }}
-        release_name: Release v${{ steps.increment.outputs.new_version }} (Windows)
-        draft: false
-        prerelease: false
+    - name: Generate release description
+      run: |
+        # 生成通用描述
+        cat > release_description.md << EOF
+        # 程序更新工具 v${{ steps.increment.outputs.new_version }}
+        
+        ## 🚀 版本特性
+        
+        - ✅ **程序更新工具** - 专业的软件更新解决方案
+        - ✅ **多种更新模式** - 支持ZIP、安装包、增量更新
+        - ✅ **GUI图形界面** - 直观易用的图形操作界面
+        - ✅ **命令行支持** - 支持自动化脚本集成
+        - ✅ **错误处理** - 完善的异常处理和回滚机制
+        - ✅ **日志记录** - 详细的运行日志和调试信息
+        
+        ## 📋 使用说明
+        
+        ### 命令行模式
+        \`\`\`bash
+        Updater.exe "主程序.exe" "更新包.zip" "目标目录" false zip
+        \`\`\`
+        
+        ### GUI模式
+        \`\`\`bash
+        Updater.exe --gui
+        # 或
+        Updater.exe -g
+        \`\`\`
+        
+        ### GUI模式 + 参数自动填充
+        \`\`\`bash
+        Updater.exe "主程序.exe" "更新包.zip" "目标目录" false zip -g
+        \`\`\`
+        
+        ## 🔧 系统要求
+        - **操作系统**: Windows 10/11
+        - **.NET运行时**: .NET 10.0 或更高版本
+        - **架构**: x64
+        
+        ## 📦 文件信息
+        - **文件类型**: 单文件可执行程序
+        - **SHA256**: 见发布文件校验信息
+        
+        ## 📝 更新日志
+        - 详细更新内容请查看项目提交历史
+        
+        ---
+        *自动生成于 ${{ steps.increment.outputs.date }}*
+        EOF
+
+    - name: Create Release with GitHub CLI
+      run: |
+        # 安装GitHub CLI
+        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+        sudo apt update
+        sudo apt install gh -y
+        
+        # 设置GitHub CLI认证
+        echo "${{ secrets.MY_GITHUB_TOKEN }}" | gh auth login --with-token
+        
+        # 创建Release
+        gh release create v${{ steps.increment.outputs.new_version }} \
+          --title "Release v${{ steps.increment.outputs.new_version }} (Windows)" \
+          --notes-file release_description.md \
+          --repo ${{ github.repository }}
 
     - name: Upload update.zip to Release
       uses: actions/upload-release-asset@v1
