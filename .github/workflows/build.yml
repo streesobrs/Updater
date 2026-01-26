@@ -19,6 +19,7 @@ jobs:
       CONFIGURATION: 'Release'
 
     steps:
+    # ---------------- checkout ----------------
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
@@ -102,7 +103,7 @@ jobs:
           \"updateUrl\": \"https://github.com/${{ github.repository }}/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip\"
         }" > update_info.json
 
-    # ---------------- release notes ----------------
+    # ---------------- changelog ----------------
     - name: Generate changelog
       id: changelog
       run: |
@@ -119,10 +120,55 @@ jobs:
         echo "$LOG" >> $GITHUB_OUTPUT
         echo "EOF" >> $GITHUB_OUTPUT
 
+    # ---------------- release body (embedded template) ----------------
     - name: Generate release body
       id: release_body
       run: |
-        body=$(cat RELEASE_TEMPLATE.md)
+        body=$(cat <<'EOF'
+## 🚀 Updater v{{VERSION}}
+
+Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**，  
+用于在主程序退出后，安全地执行文件更新，并在完成后重新启动目标程序。
+
+---
+
+### 🔧 核心能力
+
+- 支持 ZIP / 安装包 / 增量三种更新模式
+- 自动处理文件占用与权限问题
+- 更新失败可追踪（日志输出）
+- 内置测试模式，支持异常与性能验证
+
+---
+
+### 🧭 适用场景
+
+- 桌面程序自动更新
+- 启动器 / 更新器
+- 内部工具分发
+- 绿色软件更新
+
+---
+
+### 📦 构建信息
+
+- 平台：Windows x64
+- 运行时：.NET 10.0
+- 构建方式：GitHub Actions 自动构建
+- 发布日期：{{DATE}}
+
+---
+
+## 📝 本次更新内容
+
+{{CHANGELOG}}
+
+---
+
+🔐 所有发布文件均附带 SHA256 校验值  
+🤖 本版本由 GitHub Actions 自动生成并发布
+EOF
+)
 
         body=${body//'{{VERSION}}'/'${{ steps.increment.outputs.new_version }}'}
         body=${body//'{{DATE}}'/'${{ steps.increment.outputs.date }}'}
@@ -133,44 +179,13 @@ jobs:
         echo "EOF" >> $GITHUB_OUTPUT
 
     # ---------------- release ----------------
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
+    - name: Create GitHub Release
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ steps.increment.outputs.new_version }}
-        release_name: Release v${{ steps.increment.outputs.new_version }} (Windows)
-        body: ${{ steps.release_body.outputs.body }}
-        draft: false
-        prerelease: false
-
-    - name: Upload update.zip
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./update.zip
-        asset_name: update.zip
-        asset_content_type: application/zip
-
-    - name: Upload update_info.json
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./update_info.json
-        asset_name: update_info.json
-        asset_content_type: application/json
-
-    - name: Upload checksum
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./output/Updater.exe.sha256
-        asset_name: Updater.exe.sha256
-        asset_content_type: text/plain
+      run: |
+        gh release create v${{ steps.increment.outputs.new_version }} \
+          update.zip \
+          update_info.json \
+          ./output/Updater.exe.sha256 \
+          --title "Release v${{ steps.increment.outputs.new_version }} (Windows)" \
+          --notes "${{ steps.release_body.outputs.body }}"
