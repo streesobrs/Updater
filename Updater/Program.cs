@@ -14,8 +14,6 @@ using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Threading;
 using System.Text.Json;
-using System.Windows.Forms;
-using System.Drawing;
 
 namespace Updater
 {
@@ -34,8 +32,6 @@ namespace Updater
         public const string HelpArg1 = "--help";
         public const string HelpArg2 = "-h";
         public const string TestErrorArg = "--test-error";
-        public const string GuiArg = "--gui";
-        public const string GuiArgShort = "-g";
 
         // 异常测试类型
         public const string TestErrorFileCorruption = "file-corruption";
@@ -82,35 +78,6 @@ namespace Updater
         // 自动退出等待时间（秒）
         public const int GracefulShutdownWaitSeconds = 10;
         public const int TestModeShutdownWaitSeconds = 3;
-
-        /// <summary>
-        /// 从version.ini文件读取版本号
-        /// </summary>
-        /// <returns>版本号字符串</returns>
-        public static string GetVersion()
-        {
-            try
-            {
-                string versionFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "version.ini");
-                if (File.Exists(versionFile))
-                {
-                    string content = File.ReadAllText(versionFile).Trim();
-                    // 提取版本号部分（去掉日期）
-                    var match = System.Text.RegularExpressions.Regex.Match(content, @"^(\d+\.\d+\.\d+)");
-                    if (match.Success)
-                    {
-                        return match.Groups[1].Value;
-                    }
-                }
-            }
-            catch (Exception)
-            {
-                // 忽略错误，返回默认版本号
-            }
-
-            // 如果读取失败，返回程序集版本
-            return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0";
-        }
     }
 
     /// <summary>
@@ -298,7 +265,7 @@ namespace Updater
     /// <summary>
     /// 主程序类 - 负责程序更新功能
     /// </summary>
-    public class Program
+    class Program
     {
         // 日志级别枚举
         public enum LogLevel
@@ -317,18 +284,16 @@ namespace Updater
         private static string _testUpdateType = Config.UpdateTypeZip;
         private static string _testBaseDir;
         private static bool _needShowHelp = false;
-        private static bool _useGuiMode = false;
         private static IFileSystem _fileSystem = new PhysicalFileSystem();
         private static string _testErrorScenario = null;
         private static TestReport _currentTestReport = null;
         private static string _backupDir = null;
 
         /// <summary>
-        /// 可调用的运行方法，供控制台版本使用
+        /// 程序入口点
         /// </summary>
         /// <param name="args">命令行参数</param>
-        /// <returns>异步任务</returns>
-        public static async Task Run(string[] args)
+        static void Main(string[] args)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -340,28 +305,10 @@ namespace Updater
             }
             else
             {
-                // 检查GUI模式参数
-                if (args.Contains(Config.GuiArg, StringComparer.OrdinalIgnoreCase) ||
-                    args.Contains(Config.GuiArgShort, StringComparer.OrdinalIgnoreCase))
-                {
-                    _useGuiMode = true;
-                }
-                else
-                {
-                    ParseTestModeArgs(args);
-                }
+                ParseTestModeArgs(args);
             }
 
-            await MainAsync(args);
-        }
-
-        /// <summary>
-        /// 程序入口点
-        /// </summary>
-        /// <param name="args">命令行参数</param>
-        static void Main(string[] args)
-        {
-            Run(args).GetAwaiter().GetResult();
+            MainAsync(args).GetAwaiter().GetResult();
         }
 
         /// <summary>
@@ -510,50 +457,7 @@ namespace Updater
 
             InitializeLogging();
             Log("===== 更新程序启动 =====", LogLevel.Info);
-            Log($"==== 版本号: {Config.GetVersion()} ====", LogLevel.Info);
-
-            // 检查GUI模式
-            if (_useGuiMode)
-            {
-                Log("启动GUI模式", LogLevel.Info);
-                StartGuiMode(args);
-                return;
-            }
-
-            // 核心启动信息
-            Log($"启动时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}", LogLevel.Info);
-            Log($"工作目录: {Environment.CurrentDirectory}", LogLevel.Info);
-            Log($"操作系统: {Environment.OSVersion}", LogLevel.Info);
-            Log($"当前用户: {Environment.UserName}", LogLevel.Info);
-            Log($"机器名称: {Environment.MachineName}", LogLevel.Info);
-
-            // 程序运行状态检查
-            try
-            {
-                Process currentProcess = Process.GetCurrentProcess();
-                Log($"进程ID: {currentProcess.Id}", LogLevel.Info);
-                Log($"内存使用: {FormatFileSize(currentProcess.WorkingSet64)}", LogLevel.Info);
-                Log($"是否管理员权限: {IsRunningAsAdministrator()}", LogLevel.Info);
-            }
-            catch (Exception ex)
-            {
-                Log($"获取进程信息失败: {ex.Message}", LogLevel.Warning);
-            }
-
-            // 命令行参数
-            if (args.Length > 0)
-            {
-                Log($"参数数量: {args.Length}", LogLevel.Info);
-                for (int i = 0; i < args.Length; i++)
-                {
-                    Log($"  参数{i + 1}: {args[i]}", LogLevel.Info);
-                }
-            }
-            else
-            {
-                Log("未提供命令行参数", LogLevel.Info);
-            }
-
+            Log($"==== 版本号: {Assembly.GetExecutingAssembly().GetName().Version} ====", LogLevel.Info);
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
             try
@@ -2235,24 +2139,6 @@ namespace Updater
         }
 
         /// <summary>
-        /// 检查当前进程是否以管理员权限运行
-        /// </summary>
-        /// <returns>是否具有管理员权限</returns>
-        static bool IsRunningAsAdministrator()
-        {
-            try
-            {
-                WindowsIdentity identity = WindowsIdentity.GetCurrent();
-                WindowsPrincipal principal = new WindowsPrincipal(identity);
-                return principal.IsInRole(WindowsBuiltInRole.Administrator);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
         /// 等待用户按键退出
         /// </summary>
         static void WaitForExit()
@@ -2316,326 +2202,5 @@ namespace Updater
             return errorCode == 32 || errorCode == 33;
         }
         #endregion
-
-        #region GUI相关方法
-
-        /// <summary>
-        /// 启动GUI模式
-        /// </summary>
-        /// <param name="args">命令行参数</param>
-        static void StartGuiMode(string[] args)
-        {
-            try
-            {
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new UpdaterForm(args));
-            }
-            catch (Exception ex)
-            {
-                Log($"GUI模式启动失败: {ex.Message}", LogLevel.Error);
-                MessageBox.Show($"GUI模式启动失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        #endregion
-    }
-
-    /// <summary>
-    /// 更新程序GUI窗体
-    /// </summary>
-    public partial class UpdaterForm : Form
-    {
-        private TextBox txtMainAppExe;
-        private TextBox txtPackagePath;
-        private TextBox txtTargetDir;
-        private CheckBox chkDeleteAfterUpdate;
-        private ComboBox cmbUpdateType;
-        private Button btnBrowseMainApp;
-        private Button btnBrowsePackage;
-        private Button btnBrowseTarget;
-        private Button btnStartUpdate;
-        private Button btnCancel;
-        private ProgressBar progressBar;
-        private TextBox txtLog;
-        private Label lblStatus;
-
-        public UpdaterForm(string[] args)
-        {
-            InitializeComponent();
-            this.Text = $"程序更新工具 - v{Config.GetVersion()}";
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.MinimumSize = new Size(600, 500);
-
-            // 自动填充命令行参数
-            AutoFillFromCommandLine(args);
-        }
-
-        private void InitializeComponent()
-        {
-            // 主面板
-            var mainPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10) };
-
-            // 创建控件
-            CreateControls();
-
-            // 布局控件
-            LayoutControls(mainPanel);
-
-            this.Controls.Add(mainPanel);
-        }
-
-        private void CreateControls()
-        {
-            // 主程序文件
-            var lblMainAppExe = new Label { Text = "主程序文件:", AutoSize = true, Location = new Point(10, 10) };
-            txtMainAppExe = new TextBox { Location = new Point(100, 7), Width = 300, ReadOnly = true };
-            btnBrowseMainApp = new Button { Text = "浏览...", Location = new Point(410, 6), Size = new Size(60, 23) };
-            btnBrowseMainApp.Click += (s, e) => BrowseFile(txtMainAppExe, "可执行文件|*.exe|所有文件|*.*");
-
-            // 安装包路径
-            var lblPackagePath = new Label { Text = "安装包路径:", AutoSize = true, Location = new Point(10, 40) };
-            txtPackagePath = new TextBox { Location = new Point(100, 37), Width = 300, ReadOnly = true };
-            btnBrowsePackage = new Button { Text = "浏览...", Location = new Point(410, 36), Size = new Size(60, 23) };
-            btnBrowsePackage.Click += (s, e) => BrowseFile(txtPackagePath, "ZIP文件|*.zip|安装包|*.exe;*.msi|所有文件|*.*");
-
-            // 目标目录
-            var lblTargetDir = new Label { Text = "目标目录:", AutoSize = true, Location = new Point(10, 70) };
-            txtTargetDir = new TextBox { Location = new Point(100, 67), Width = 300, ReadOnly = true };
-            btnBrowseTarget = new Button { Text = "浏览...", Location = new Point(410, 66), Size = new Size(60, 23) };
-            btnBrowseTarget.Click += (s, e) => BrowseFolder(txtTargetDir);
-
-            // 更新选项
-            var lblUpdateType = new Label { Text = "更新类型:", AutoSize = true, Location = new Point(10, 100) };
-            cmbUpdateType = new ComboBox { Location = new Point(100, 97), Width = 150, DropDownStyle = ComboBoxStyle.DropDownList };
-            cmbUpdateType.Items.AddRange(new[] { "zip", "installer", "incremental" });
-            cmbUpdateType.SelectedIndex = 0;
-
-            chkDeleteAfterUpdate = new CheckBox { Text = "更新后删除安装包", Location = new Point(260, 100), AutoSize = true, Checked = true };
-
-            // 按钮区域
-            btnStartUpdate = new Button { Text = "开始更新", Location = new Point(150, 130), Size = new Size(80, 30) };
-            btnCancel = new Button { Text = "取消", Location = new Point(250, 130), Size = new Size(80, 30) };
-
-            btnStartUpdate.Click += BtnStartUpdate_Click;
-            btnCancel.Click += (s, e) => this.Close();
-
-            // 进度条
-            progressBar = new ProgressBar { Location = new Point(10, 170), Width = 460, Height = 20, Visible = false };
-
-            // 状态标签
-            lblStatus = new Label { Text = "准备就绪", Location = new Point(10, 200), AutoSize = true };
-
-            // 日志文本框
-            var lblLog = new Label { Text = "更新日志:", AutoSize = true, Location = new Point(10, 230) };
-            txtLog = new TextBox
-            {
-                Location = new Point(10, 250),
-                Width = 460,
-                Height = 150,
-                Multiline = true,
-                ScrollBars = ScrollBars.Vertical,
-                ReadOnly = true,
-                Font = new Font("Consolas", 9)
-            };
-        }
-
-        private void LayoutControls(Panel mainPanel)
-        {
-            // 将所有控件添加到主面板
-            var controls = new Control[]
-            {
-                new Label { Text = "主程序文件:", AutoSize = true, Location = new Point(10, 10) },
-                txtMainAppExe, btnBrowseMainApp,
-                new Label { Text = "安装包路径:", AutoSize = true, Location = new Point(10, 40) },
-                txtPackagePath, btnBrowsePackage,
-                new Label { Text = "目标目录:", AutoSize = true, Location = new Point(10, 70) },
-                txtTargetDir, btnBrowseTarget,
-                new Label { Text = "更新类型:", AutoSize = true, Location = new Point(10, 100) },
-                cmbUpdateType, chkDeleteAfterUpdate,
-                btnStartUpdate, btnCancel,
-                progressBar, lblStatus,
-                new Label { Text = "更新日志:", AutoSize = true, Location = new Point(10, 230) },
-                txtLog
-            };
-
-            foreach (var control in controls)
-            {
-                mainPanel.Controls.Add(control);
-            }
-        }
-
-        private void BrowseFile(TextBox textBox, string filter)
-        {
-            using (var dialog = new OpenFileDialog())
-            {
-                dialog.Filter = filter;
-                if (dialog.ShowDialog() == DialogResult.OK)
-                {
-                    textBox.Text = dialog.FileName;
-                }
-            }
-        }
-
-        private void BrowseFolder(TextBox textBox)
-        {
-            using (var dialog = new FolderBrowserDialog())
-            {
-                if (dialog.ShowDialog() == DialogResult.OK)
-                {
-                    textBox.Text = dialog.SelectedPath;
-                }
-            }
-        }
-
-        private async void BtnStartUpdate_Click(object sender, EventArgs e)
-        {
-            if (string.IsNullOrEmpty(txtMainAppExe.Text) ||
-                string.IsNullOrEmpty(txtPackagePath.Text) ||
-                string.IsNullOrEmpty(txtTargetDir.Text))
-            {
-                MessageBox.Show("请填写所有必填字段", "提示", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            if (!File.Exists(txtPackagePath.Text))
-            {
-                MessageBox.Show("安装包文件不存在", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            // 禁用按钮，显示进度条
-            btnStartUpdate.Enabled = false;
-            btnCancel.Enabled = false;
-            progressBar.Visible = true;
-            progressBar.Style = ProgressBarStyle.Marquee;
-
-            lblStatus.Text = "正在更新...";
-            txtLog.Clear();
-
-            try
-            {
-                // 构建命令行参数
-                string[] args = new[]
-                {
-                    txtMainAppExe.Text,
-                    txtPackagePath.Text,
-                    txtTargetDir.Text,
-                    chkDeleteAfterUpdate.Checked.ToString().ToLower(),
-                    cmbUpdateType.SelectedItem.ToString()
-                };
-
-                // 这里可以调用现有的更新逻辑
-                // 由于现有代码是控制台应用，需要重构为可重用的方法
-                // 暂时显示模拟进度
-                await SimulateUpdate(args);
-
-                MessageBox.Show("更新完成！", "成功", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                this.Close();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"更新失败: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                // 恢复界面状态
-                btnStartUpdate.Enabled = true;
-                btnCancel.Enabled = true;
-                progressBar.Visible = false;
-                lblStatus.Text = "准备就绪";
-            }
-        }
-
-        private async Task SimulateUpdate(string[] args)
-        {
-            // 模拟更新过程
-            for (int i = 0; i < 10; i++)
-            {
-                await Task.Delay(500);
-                txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] 步骤 {i + 1}/10 完成\r\n");
-                txtLog.ScrollToCaret();
-            }
-        }
-
-        private void AppendLog(string message)
-        {
-            if (txtLog.InvokeRequired)
-            {
-                txtLog.Invoke(new Action<string>(AppendLog), message);
-            }
-            else
-            {
-                txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\r\n");
-                txtLog.ScrollToCaret();
-            }
-        }
-
-        /// <summary>
-        /// 从命令行参数自动填充界面
-        /// </summary>
-        /// <param name="args">命令行参数</param>
-        private void AutoFillFromCommandLine(string[] args)
-        {
-            // 过滤掉GUI参数（--gui 或 -g）
-            var filteredArgs = args.Where(arg =>
-                !arg.Equals(Config.GuiArg, StringComparison.OrdinalIgnoreCase) &&
-                !arg.Equals(Config.GuiArgShort, StringComparison.OrdinalIgnoreCase)).ToArray();
-
-            // 如果参数数量足够（5个参数），则自动填充
-            if (filteredArgs.Length >= 5)
-            {
-                try
-                {
-                    // 主程序文件
-                    if (File.Exists(filteredArgs[0]))
-                    {
-                        txtMainAppExe.Text = filteredArgs[0];
-                    }
-                    else
-                    {
-                        txtMainAppExe.Text = filteredArgs[0];
-                        AppendLog($"警告：主程序文件不存在 - {filteredArgs[0]}");
-                    }
-
-                    // 安装包路径
-                    if (File.Exists(filteredArgs[1]))
-                    {
-                        txtPackagePath.Text = filteredArgs[1];
-                    }
-                    else
-                    {
-                        txtPackagePath.Text = filteredArgs[1];
-                        AppendLog($"警告：安装包文件不存在 - {filteredArgs[1]}");
-                    }
-
-                    // 目标目录
-                    txtTargetDir.Text = filteredArgs[2];
-
-                    // 是否删除安装包
-                    if (bool.TryParse(filteredArgs[3], out bool deleteAfterUpdate))
-                    {
-                        chkDeleteAfterUpdate.Checked = deleteAfterUpdate;
-                    }
-
-                    // 更新类型
-                    string updateType = filteredArgs[4].ToLower();
-                    if (new[] { "zip", "installer", "incremental" }.Contains(updateType))
-                    {
-                        cmbUpdateType.SelectedItem = updateType;
-                    }
-
-                    AppendLog("已自动填充命令行参数");
-                }
-                catch (Exception ex)
-                {
-                    AppendLog($"自动填充参数失败: {ex.Message}");
-                }
-            }
-            else if (filteredArgs.Length > 0)
-            {
-                AppendLog($"参数数量不足，需要5个参数，实际收到{filteredArgs.Length}个");
-            }
-        }
     }
 }
