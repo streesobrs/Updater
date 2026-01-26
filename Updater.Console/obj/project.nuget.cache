@@ -1,0 +1,20 @@
+{
+  "version": 2,
+  "dgSpecHash": "vAjY4CQ0HCk=",
+  "success": false,
+  "projectFilePath": "D:\\工程文件\\Updater\\Updater.Console\\Updater.Console.csproj",
+  "expectedPackageFiles": [],
+  "logs": [
+    {
+      "code": "NU1201",
+      "level": "Error",
+      "message": "项目 Updater 与 net10.0 (.NETCoreApp,Version=v10.0) 不兼容。 项目 Updater 支持: net10.0-windows7.0 (.NETCoreApp,Version=v10.0)",
+      "projectPath": "D:\\工程文件\\Updater\\Updater.Console\\Updater.Console.csproj",
+      "filePath": "D:\\工程文件\\Updater\\Updater.Console\\Updater.Console.csproj",
+      "libraryId": "Updater",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
+}
