@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<PlatformTarget>x64</PlatformTarget>
+		<RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<PublishSingleFile>true</PublishSingleFile>
+		<Version>1.6.0</Version>
+		<SelfContained>false</SelfContained>
+		<PublishTrimmed>true</PublishTrimmed>
+		<TrimMode>link</TrimMode>
+		<TrimmerRemoveSymbols>true</TrimmerRemoveSymbols>
+		<AssemblyName>Updater.Console</AssemblyName>
+		<LangVersion>latest</LangVersion>
+		<CodePage>65001</CodePage>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Updater\Updater.csproj" />
+	</ItemGroup>
+
+</Project>
