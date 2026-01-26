@@ -4,67 +4,141 @@ on:
   push:
     branches:
       - master
+      - main
   pull_request:
     branches:
       - master
+      - main
   workflow_dispatch:  # 允许手动触发构建
+    inputs:
+      version_bump:
+        description: '版本号更新类型 (major/minor/patch)'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+# 设置全局环境变量
+env:
+  DOTNET_VERSION: '10.0.x'
+  RUNTIME_ID: 'win-x64'
+  CONFIGURATION: 'Release'
+  PROJECT_NAME: 'Updater'
+  OUTPUT_DIR: './publish'
+  ASSETS_DIR: './release-assets'
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
     
-    # 添加环境变量
-    env:
-      DOTNET_VERSION: '10.0.x'
-      RUNTIME_ID: 'win-x64'
-      CONFIGURATION: 'Release'
-
     steps:
+    # 1. 检出代码
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 获取完整提交历史
 
-    - name: Increment version
-      id: increment
+    # 2. 版本管理
+    - name: Determine version increment
+      id: version
       run: |
-        if [ -f version.ini ]; then
-          version=$(grep -oP '^\d+\.\d+\.\d+' version.ini)
+        # 从输入或事件类型决定版本更新方式
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          BUMP_TYPE="${{ github.event.inputs.version_bump }}"
         else
-          version="1.0.0"
+          # 根据提交信息判断更新类型
+          if [[ "${{ github.event.head_commit.message }}" =~ \[major\] ]]; then
+            BUMP_TYPE="major"
+          elif [[ "${{ github.event.head_commit.message }}" =~ \[minor\] ]]; then
+            BUMP_TYPE="minor"
+          else
+            BUMP_TYPE="patch"
+          fi
         fi
-        IFS='.' read -r -a parts <<< "$version"
-        parts[2]=$((parts[2] + 1))
-        new_version="${parts[0]}.${parts[1]}.${parts[2]}"
-        date=$(date +'%Y-%m-%d')
-        echo "$new_version ($date)" > version.ini
-        echo "new_version=$new_version" >> $GITHUB_OUTPUT
-        echo "date=$date" >> $GITHUB_OUTPUT
+        
+        # 读取或初始化版本号
+        if [ -f version.ini ]; then
+          CURRENT_VERSION=$(grep -oP '^\d+\.\d+\.\d+' version.ini)
+        else
+          CURRENT_VERSION="1.0.0"
+        fi
+        
+        IFS='.' read -r -a VERSION_PARTS <<< "$CURRENT_VERSION"
+        
+        case "$BUMP_TYPE" in
+          "major")
+            VERSION_PARTS[0]=$((VERSION_PARTS[0] + 1))
+            VERSION_PARTS[1]=0
+            VERSION_PARTS[2]=0
+            ;;
+          "minor")
+            VERSION_PARTS[1]=$((VERSION_PARTS[1] + 1))
+            VERSION_PARTS[2]=0
+            ;;
+          "patch")
+            VERSION_PARTS[2]=$((VERSION_PARTS[2] + 1))
+            ;;
+        esac
+        
+        NEW_VERSION="${VERSION_PARTS[0]}.${VERSION_PARTS[1]}.${VERSION_PARTS[2]}"
+        BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        BUILD_TIMESTAMP=$(date +%s)
+        
+        echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
+        echo "build_timestamp=$BUILD_TIMESTAMP" >> $GITHUB_OUTPUT
+        echo "bump_type=$BUMP_TYPE" >> $GITHUB_OUTPUT
+        echo "release_tag=v$NEW_VERSION" >> $GITHUB_OUTPUT
 
-    - name: Commit version file
-      if: "!contains(github.event.head_commit.message, 'Increment version')"
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # 提交代码用内置令牌更合适
+    # 3. 更新版本文件（仅在非版本提交时）
+    - name: Update version files
+      if: "!contains(github.event.head_commit.message, '[skip-version]')"
+      run: |
+        # 更新 version.ini
+        echo "${{ steps.version.outputs.new_version }} (${{ steps.version.outputs.build_date }})" > version.ini
+        
+        # 更新 AssemblyInfo (如果存在)
+        if [ -f "$PROJECT_NAME/Properties/AssemblyInfo.cs" ]; then
+          sed -i "s/AssemblyVersion(\"[^\"]*\")/AssemblyVersion(\"${{ steps.version.outputs.new_version }}.0\")/" $PROJECT_NAME/Properties/AssemblyInfo.cs
+          sed -i "s/AssemblyFileVersion(\"[^\"]*\")/AssemblyFileVersion(\"${{ steps.version.outputs.new_version }}.0\")/" $PROJECT_NAME/Properties/AssemblyInfo.cs
+        fi
+        
+        # 更新 .csproj 文件中的版本信息
+        if [ -f "$PROJECT_NAME/$PROJECT_NAME.csproj" ]; then
+          # 版本号
+          sed -i "s/<Version>[^<]*<\/Version>/<Version>${{ steps.version.outputs.new_version }}<\/Version>/" $PROJECT_NAME/$PROJECT_NAME.csproj
+          
+          # AssemblyVersion (可选)
+          sed -i "s/<AssemblyVersion>[^<]*<\/AssemblyVersion>/<AssemblyVersion>${{ steps.version.outputs.new_version }}<\/AssemblyVersion>/" $PROJECT_NAME/$PROJECT_NAME.csproj 2>/dev/null || true
+          
+          # FileVersion
+          sed -i "s/<FileVersion>[^<]*<\/FileVersion>/<FileVersion>${{ steps.version.outputs.new_version }}<\/FileVersion>/" $PROJECT_NAME/$PROJECT_NAME.csproj 2>/dev/null || true
+        fi
+
+    # 4. 提交版本变更
+    - name: Commit version changes
+      if: "github.event_name == 'push' && !contains(github.event.head_commit.message, '[skip-version]')"
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        git add version.ini
-        git commit -m "Increment version to ${{ steps.increment.outputs.new_version }}"
-        git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/streesobrs/Updater.git HEAD:master
+        git add version.ini $PROJECT_NAME/Properties/AssemblyInfo.cs $PROJECT_NAME/$PROJECT_NAME.csproj 2>/dev/null || true
+        git diff --cached --quiet || {
+          git commit -m "chore: bump version to ${{ steps.version.outputs.new_version }} [skip ci]"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ github.ref_name }}
+        }
 
-    - name: Set up .NET
+    # 5. 设置 .NET 环境
+    - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-    
-    - name: Setup .NET Core SDK tools
-      run: dotnet tool install -g dotnet-reportgenerator-globaltool
-    
-    - name: Display .NET version info
-      run: |
-        dotnet --info
-        dotnet --list-sdks
-        dotnet --list-runtimes
 
-    - name: Cache .NET dependencies
+    # 6. 缓存依赖
+    - name: Cache NuGet packages
       uses: actions/cache@v3
       with:
         path: ~/.nuget/packages
@@ -72,175 +146,321 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-nuget-
 
+    # 7. 恢复依赖
     - name: Restore dependencies
-      run: dotnet restore Updater/Updater.csproj
+      run: dotnet restore $PROJECT_NAME/$PROJECT_NAME.csproj
 
-    - name: Update version in .csproj
+    # 8. 构建项目
+    - name: Build project
       run: |
-        sed -i "s/<Version>.*<\/Version>/<Version>${{ steps.increment.outputs.new_version }}<\/Version>/" Updater/Updater.csproj
+        dotnet build $PROJECT_NAME/$PROJECT_NAME.csproj \
+          --configuration ${{ env.CONFIGURATION }} \
+          --no-restore \
+          --verbosity normal
 
-    - name: Build for Windows
-      run: dotnet build Updater/Updater.csproj --configuration ${{ env.CONFIGURATION }} --no-restore
-
-    - name: Run unit tests (if any)
+    # 9. 运行测试
+    - name: Run tests
       if: always()
-      run: dotnet test --no-build --verbosity normal --logger trx --results-directory ./test-results
+      run: |
+        dotnet test \
+          --no-build \
+          --verbosity normal \
+          --logger "trx;LogFileName=test-results.trx" \
+          --results-directory ./test-results \
+          --collect:"XPlat Code Coverage" \
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
 
-    - name: Upload test results
+    # 10. 生成测试报告
+    - name: Generate test report
       if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-results
-        path: test-results/
-        retention-days: 30
-
-    - name: Publish for Windows
-      run: dotnet publish Updater/Updater.csproj --configuration ${{ env.CONFIGURATION }} --no-build --output ./output --self-contained false /p:PublishSingleFile=true -r ${{ env.RUNTIME_ID }}
-
-    - name: List output directories (debug)
       run: |
-        echo "=== Output Directory ==="
-        ls -l ./output
+        dotnet tool install -g dotnet-reportgenerator-globaltool
+        reportgenerator \
+          -reports:./test-results/**/coverage.opencover.xml \
+          -targetdir:./coverage-report \
+          -reporttypes:HtmlInline_AzurePipelines
 
-    - name: Verify executable exists
+    # 11. 发布应用
+    - name: Publish application
       run: |
-        if [ -f "./output/Updater.exe" ]; then
-          echo "Windows executable found"
-          echo "File size: $(du -h ./output/Updater.exe | cut -f1)"
+        dotnet publish $PROJECT_NAME/$PROJECT_NAME.csproj \
+          --configuration ${{ env.CONFIGURATION }} \
+          --no-build \
+          --output ${{ env.OUTPUT_DIR }} \
+          --self-contained false \
+          /p:PublishSingleFile=true \
+          /p:IncludeNativeLibrariesForSelfExtract=true \
+          /p:EnableCompressionInSingleFile=true \
+          -r ${{ env.RUNTIME_ID }} \
+          -p:DebugType=embedded \
+          -p:DebugSymbols=true
+
+    # 12. 收集文件信息
+    - name: Collect file information
+      id: file_info
+      run: |
+        EXECUTABLE_PATH="${{ env.OUTPUT_DIR }}/$PROJECT_NAME.exe"
+        
+        if [ -f "$EXECUTABLE_PATH" ]; then
+          # 获取文件信息
+          FILE_SIZE=$(stat -c%s "$EXECUTABLE_PATH")
+          FILE_SIZE_MB=$(echo "scale=2; $FILE_SIZE / 1024 / 1024" | bc)
+          SHA256=$(sha256sum "$EXECUTABLE_PATH" | cut -d' ' -f1)
+          MD5=$(md5sum "$EXECUTABLE_PATH" | cut -d' ' -f1)
+          
+          # 获取构建信息
+          BUILD_INFO=$(${{ env.OUTPUT_DIR }}/$PROJECT_NAME.exe --version 2>/dev/null || echo "Unknown")
+          
+          echo "file_size=$FILE_SIZE" >> $GITHUB_OUTPUT
+          echo "file_size_mb=$FILE_SIZE_MB" >> $GITHUB_OUTPUT
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "md5=$MD5" >> $GITHUB_OUTPUT
+          echo "build_info=$BUILD_INFO" >> $GITHUB_OUTPUT
+          
+          # 保存校验和文件
+          echo "$SHA256  $PROJECT_NAME.exe" > ${{ env.OUTPUT_DIR }}/$PROJECT_NAME.exe.sha256
+          echo "$MD5  $PROJECT_NAME.exe" > ${{ env.OUTPUT_DIR }}/$PROJECT_NAME.exe.md5
+          
+          echo "✅ Executable found: $EXECUTABLE_PATH"
+          echo "📊 Size: ${FILE_SIZE_MB}MB"
         else
-          echo "Windows executable not found"
+          echo "❌ Executable not found at: $EXECUTABLE_PATH"
           exit 1
         fi
 
-    - name: Generate file checksums
+    # 13. 创建发布目录
+    - name: Prepare release assets
       run: |
-        echo "=== File Checksums ==="
-        sha256sum ./output/Updater.exe > ./output/Updater.exe.sha256
-        md5sum ./output/Updater.exe > ./output/Updater.exe.md5
-        cat ./output/Updater.exe.sha256
-        cat ./output/Updater.exe.md5
+        mkdir -p ${{ env.ASSETS_DIR }}
+        
+        # 复制可执行文件
+        cp ${{ env.OUTPUT_DIR }}/$PROJECT_NAME.exe ${{ env.ASSETS_DIR }}/
+        cp ${{ env.OUTPUT_DIR }}/$PROJECT_NAME.exe.sha256 ${{ env.ASSETS_DIR }}/
+        cp ${{ env.OUTPUT_DIR }}/$PROJECT_NAME.exe.md5 ${{ env.ASSETS_DIR }}/
+        
+        # 创建压缩包
+        7z a -tzip ${{ env.ASSETS_DIR }}/update.zip ${{ env.OUTPUT_DIR }}/$PROJECT_NAME.exe
 
-    - name: Security scan with trivy (optional)
+    # 14. 生成详细的 update_info.json
+    - name: Generate detailed update_info.json
+      run: |
+        # 获取最近的提交信息
+        LATEST_COMMIT=$(git log -1 --pretty=format:"%s")
+        COMMIT_AUTHOR=$(git log -1 --pretty=format:"%an")
+        COMMIT_HASH=$(git rev-parse --short HEAD)
+        
+        # 获取变更日志（最近5个提交）
+        CHANGELOG=$(git log --oneline -5 --pretty=format:"- %s [%an]" | sed 's/"/\\"/g')
+        
+        # 获取工作流运行信息
+        WORKFLOW_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        
+        # 生成详细的 JSON 文件
+        cat > ${{ env.ASSETS_DIR }}/update_info.json << EOF
+        {
+          "application": {
+            "name": "${{ env.PROJECT_NAME }}",
+            "displayName": "程序更新工具",
+            "description": "专业的软件更新解决方案，支持多种更新模式和自动化部署",
+            "version": "${{ steps.version.outputs.new_version }}",
+            "buildNumber": "${{ steps.version.outputs.build_timestamp }}"
+          },
+          "release": {
+            "tag": "${{ steps.version.outputs.release_tag }}",
+            "date": "${{ steps.version.outputs.build_date }}",
+            "type": "${{ steps.version.outputs.bump_type }}",
+            "isPrerelease": false,
+            "channel": "stable"
+          },
+          "build": {
+            "configuration": "${{ env.CONFIGURATION }}",
+            "runtime": "${{ env.RUNTIME_ID }}",
+            "dotnetVersion": "${{ env.DOTNET_VERSION }}",
+            "buildDate": "${{ steps.version.outputs.build_date }}",
+            "buildTimestamp": ${{ steps.version.outputs.build_timestamp }},
+            "workflowRun": "$WORKFLOW_RUN_URL"
+          },
+          "files": {
+            "executable": "$PROJECT_NAME.exe",
+            "size": ${{ steps.file_info.outputs.file_size }},
+            "sizeHuman": "${ { steps.file_info.outputs.file_size_mb } }MB",
+            "checksums": {
+              "sha256": "${{ steps.file_info.outputs.sha256 }}",
+              "md5": "${{ steps.file_info.outputs.md5 }}"
+            },
+            "archive": {
+              "name": "update.zip",
+              "format": "zip",
+              "compression": "deflate"
+            }
+          },
+          "requirements": {
+            "os": "Windows 10 / Windows Server 2016+",
+            "architecture": "x64",
+            "dotnetRuntime": "10.0.0+",
+            "administrator": false,
+            "diskSpace": "10MB"
+          },
+          "capabilities": {
+            "updateModes": ["zip", "installer", "incremental"],
+            "features": [
+              "automatic-updates",
+              "rollback-support",
+              "command-line-interface",
+              "logging",
+              "error-handling"
+            ]
+          },
+          "deployment": {
+            "command": "$PROJECT_NAME.exe \"main.exe\" \"update.zip\" \"target_dir\" false zip",
+            "silentSwitch": "/silent",
+            "helpSwitch": "/help"
+          },
+          "source": {
+            "repository": "${{ github.repository }}",
+            "commit": {
+              "hash": "$COMMIT_HASH",
+              "message": "$LATEST_COMMIT",
+              "author": "$COMMIT_AUTHOR"
+            },
+            "changelog": "$CHANGELOG"
+          },
+          "metadata": {
+            "generated": "${{ steps.version.outputs.build_date }}",
+            "generator": "GitHub Actions Workflow",
+            "schemaVersion": "1.2.0"
+          },
+          "urls": {
+            "download": "https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.release_tag }}/update.zip",
+            "release": "https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.release_tag }}",
+            "documentation": "https://github.com/${{ github.repository }}/wiki",
+            "issues": "https://github.com/${{ github.repository }}/issues"
+          }
+        }
+        EOF
+        
+        # 输出预览
+        echo "📋 Generated update_info.json:"
+        cat ${{ env.ASSETS_DIR }}/update_info.json | python -m json.tool | head -50
+
+    # 15. 创建 GitHub Release
+    - name: Create GitHub Release
+      if: github.event_name != 'pull_request'
+      id: create_release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.release_tag }}
+        name: Release ${{ steps.version.outputs.release_tag }} (${{ env.RUNTIME_ID }})
+        body: |
+          # 🚀 ${{ env.PROJECT_NAME }} ${{ steps.version.outputs.new_version }}
+          
+          **构建时间**: ${{ steps.version.outputs.build_date }}
+          **版本类型**: ${{ steps.version.outputs.bump_type }} 更新
+          **运行环境**: ${{ env.RUNTIME_ID }} | .NET ${{ env.DOTNET_VERSION }}
+          
+          ## 📦 文件信息
+          
+          | 文件 | 大小 | SHA256 |
+          |------|------|--------|
+          | `$PROJECT_NAME.exe` | ${ { steps.file_info.outputs.file_size_mb } }MB | `${{ steps.file_info.outputs.sha256 }}` |
+          
+          ## 🔧 系统要求
+          - **操作系统**: Windows 10/11 或 Windows Server 2016+
+          - **.NET 运行时**: .NET ${{ env.DOTNET_VERSION }} 或更高版本
+          - **架构**: x64
+          - **磁盘空间**: 至少 10MB 可用空间
+          
+          ## 📝 最近更新
+          ```
+          $CHANGELOG
+          ```
+          
+          ## 🚀 快速开始
+          
+          ### 命令行使用
+          ```bash
+          $PROJECT_NAME.exe "主程序.exe" "更新包.zip" "目标目录" false zip
+          ```
+          
+          ### 静默安装
+          ```bash
+          $PROJECT_NAME.exe /silent
+          ```
+          
+          ## 📁 文件清单
+          1. `$PROJECT_NAME.exe` - 主程序文件
+          2. `update.zip` - 压缩包（包含主程序）
+          3. `update_info.json` - 详细的更新信息
+          4. `$PROJECT_NAME.exe.sha256` - SHA256 校验和
+          5. `$PROJECT_NAME.exe.md5` - MD5 校验和
+          
+          ## 🔐 安全验证
+          下载后请验证文件完整性：
+          ```bash
+          certutil -hashfile $PROJECT_NAME.exe SHA256
+          ```
+          应该得到: `${{ steps.file_info.outputs.sha256 }}`
+          
+          ## ❓ 获取帮助
+          - 查看文档: [项目 Wiki](https://github.com/${{ github.repository }}/wiki)
+          - 报告问题: [Issues](https://github.com/${{ github.repository }}/issues)
+          - 工作流运行: [${{ github.workflow }} #${{ github.run_number }}]($WORKFLOW_RUN_URL)
+          
+          ---
+          *此版本由 GitHub Actions 自动构建发布*
+        draft: false
+        prerelease: false
+        files: |
+          ${{ env.ASSETS_DIR }}/*.exe
+          ${{ env.ASSETS_DIR }}/*.zip
+          ${{ env.ASSETS_DIR }}/*.json
+          ${{ env.ASSETS_DIR }}/*.sha256
+          ${{ env.ASSETS_DIR }}/*.md5
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    # 16. 上传附加产物（用于调试）
+    - name: Upload additional artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-artifacts
+        path: |
+          ${{ env.OUTPUT_DIR }}
+          ${{ env.ASSETS_DIR }}
+          test-results/
+          coverage-report/
+        retention-days: 30
+
+    # 17. 安全扫描（可选）
+    - name: Security scan
       if: always()
       uses: aquasecurity/trivy-action@master
       with:
         scan-type: 'fs'
-        scan-ref: './output'
+        scan-ref: '${{ env.OUTPUT_DIR }}'
         format: 'sarif'
         output: 'trivy-results.sarif'
+        severity: 'CRITICAL,HIGH'
 
+    # 18. 上传安全扫描结果
     - name: Upload security scan results
       if: always()
       uses: actions/upload-artifact@v4
       with:
-        name: security-scan-results
+        name: security-report
         path: trivy-results.sarif
-        retention-days: 30
+        retention-days: 90
 
-    - name: Install 7zip
-      run: sudo apt-get install -y p7zip-full
-
-    - name: Create update.zip file
+    # 19. 发送通知（可选）
+    - name: Notify on success
+      if: success()
       run: |
-        # 创建压缩包
-        7z a -tzip update.zip ./output/Updater.exe
+        echo "✅ 构建成功! 版本: ${{ steps.version.outputs.new_version }}"
+        echo "🔗 发布地址: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.release_tag }}"
 
-    - name: Generate update_info.json
+    # 20. 失败通知
+    - name: Notify on failure
+      if: failure()
       run: |
-        echo '{
-          "version": "${{ steps.increment.outputs.new_version }}",
-          "updateUrl": "https://github.com/streesobrs/Updater/releases/download/v${{ steps.increment.outputs.new_version }}/update.zip"
-        }' > update_info.json
-
-
-
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ steps.increment.outputs.new_version }}
-        release_name: Release v${{ steps.increment.outputs.new_version }} (Windows)
-        body: |
-          # 程序更新工具 v${{ steps.increment.outputs.new_version }}
-          
-          ## 🚀 版本特性
-          
-          - ✅ **程序更新工具** - 专业的软件更新解决方案
-          - ✅ **多种更新模式** - 支持ZIP、安装包、增量更新
-          - ✅ **命令行支持** - 支持自动化脚本集成
-          - ✅ **错误处理** - 完善的异常处理和回滚机制
-          - ✅ **日志记录** - 详细的运行日志和调试信息
-          
-          ## 📋 使用说明
-          
-          ### 命令行模式
-          ```bash
-          Updater.exe "主程序.exe" "更新包.zip" "目标目录" false zip
-          ```
-          
-          ## 🔧 系统要求
-          - **操作系统**: Windows 10/11
-          - **.NET运行时**: .NET 10.0 或更高版本
-          - **架构**: x64
-          
-          ## 📦 文件信息
-          - **文件类型**: 单文件可执行程序
-          - **SHA256**: 见发布文件校验信息
-          
-          ## 📝 更新日志
-          - 详细更新内容请查看项目提交历史
-          
-          ---
-          *自动生成于 ${{ steps.increment.outputs.date }}*
-        draft: false
-        prerelease: false
-
-    - name: Upload update.zip to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用自定义令牌
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./update.zip
-        asset_name: update.zip
-        asset_content_type: application/zip
-
-    - name: Upload update_info.json to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用自定义令牌
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./update_info.json
-        asset_name: update_info.json
-        asset_content_type: application/json
-
-    - name: Upload checksums to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用自定义令牌
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./output/Updater.exe.sha256
-        asset_name: Updater.exe.sha256
-        asset_content_type: text/plain
-
-    - name: Upload md5 checksum to Release
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}  # 使用自定义令牌
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./output/Updater.exe.md5
-        asset_name: Updater.exe.md5
-        asset_content_type: text/plain
-
-    - name: Upload executable as artifact (for debugging)
-      uses: actions/upload-artifact@v4
-      with:
-        name: updater-executable
-        path: ./output/Updater.exe
-        retention-days: 7
-    
+        echo "❌ 构建失败! 请检查工作流运行详情"
+        echo "🔗 工作流运行: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
