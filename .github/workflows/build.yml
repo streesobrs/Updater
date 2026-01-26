@@ -64,13 +64,13 @@ jobs:
       run: dotnet build Updater/Updater.csproj --configuration Release --no-restore
 
     - name: Publish for Windows (GUI Version)
-      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output-gui --self-contained false /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true -r win-x64
+      run: dotnet publish Updater/Updater.csproj --configuration Release --no-build --output ./output-gui --self-contained false /p:PublishSingleFile=true -r win-x64
 
     - name: Build for Windows (Console Version)
       run: dotnet build Updater.Console/Updater.Console.csproj --configuration Release --no-restore
 
     - name: Publish for Windows (Console Version)
-      run: dotnet publish Updater.Console/Updater.Console.csproj --configuration Release --no-build --output ./output-console --self-contained false /p:PublishSingleFile=true /p:EnableCompressionInSingleFile=true -r win-x64
+      run: dotnet publish Updater.Console/Updater.Console.csproj --configuration Release --no-build --output ./output-console --self-contained false /p:PublishSingleFile=true -r win-x64
 
     - name: List output directories (debug)
       run: |
