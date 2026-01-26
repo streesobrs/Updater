@@ -243,14 +243,4 @@ jobs:
         name: updater-executable
         path: ./output/Updater.exe
         retention-days: 7
-
-    - name: Send build notification (optional)
-      if: success()
-      uses: 8398a7/action-slack@v3
-      with:
-        status: ${{ job.status }}
-        channel: '#builds'
-        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
-      env:
-        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}
     
