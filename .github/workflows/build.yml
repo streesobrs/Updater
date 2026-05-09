@@ -65,7 +65,7 @@ jobs:
         dotnet publish Updater.Console/Updater.Console.csproj \
           -c ${{ env.CONFIGURATION }} \
           -r ${{ env.RUNTIME_ID }} \
-          --self-contained true \
+          --self-contained false \
           -p:PublishSingleFile=true \
           -o output/gui
 
