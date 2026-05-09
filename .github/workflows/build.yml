@@ -9,7 +9,6 @@ on:
 
 jobs:
   build-and-release:
-    # 防止 workflow 因自己 bump version.ini 而再次触发
     if: "!contains(github.event.head_commit.message, '[skip release]')"
     runs-on: ubuntu-latest
 
@@ -47,30 +46,49 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
 
     - name: Restore dependencies
-      run: dotnet restore Updater/Updater.csproj
+      run: dotnet restore Updater.sln
 
     - name: Build
-      run: dotnet build Updater/Updater.csproj --configuration ${{ env.CONFIGURATION }}
+      run: dotnet build Updater.sln --configuration ${{ env.CONFIGURATION }}
 
-    - name: Publish
+    - name: Publish Console version
       run: |
         dotnet publish Updater/Updater.csproj \
           -c ${{ env.CONFIGURATION }} \
           -r ${{ env.RUNTIME_ID }} \
           --self-contained false \
           -p:PublishSingleFile=true \
-          -o output
+          -o output/console
 
-    - name: Verify executable
-      run: test -f output/Updater.exe
+    - name: Publish GUI version
+      run: |
+        dotnet publish Updater.Console/Updater.Console.csproj \
+          -c ${{ env.CONFIGURATION }} \
+          -r ${{ env.RUNTIME_ID }} \
+          --self-contained true \
+          -p:PublishSingleFile=true \
+          -o output/gui
+
+    - name: Verify executables
+      run: |
+        test -f output/console/Updater.exe
+        test -f output/gui/Updater.GUI.exe
 
     # ---------------- package ----------------
-    - name: Package artifacts
+    - name: Generate SHA256 checksums
       run: |
-        sha256sum output/Updater.exe > output/Updater.exe.sha256
+        sha256sum output/console/Updater.exe > output/console/Updater.exe.sha256
+        sha256sum output/gui/Updater.GUI.exe > output/gui/Updater.GUI.exe.sha256
+
+    - name: Package Console version
+      run: |
         sudo apt-get update
         sudo apt-get install -y p7zip-full
-        7z a update.zip output/Updater.exe
+        7z a "update_console_v${{ steps.version.outputs.release_version }}.zip" output/console/Updater.exe output/console/Updater.exe.sha256
+
+    - name: Package GUI version
+      run: |
+        7z a "update_gui_v${{ steps.version.outputs.release_version }}.zip" output/gui/Updater.GUI.exe output/gui/Updater.GUI.exe.sha256
 
     - name: Generate update_info.json
       run: |
@@ -104,11 +122,19 @@ jobs:
         echo "" >> release_body.md
         echo "---" >> release_body.md
         echo "" >> release_body.md
+        echo "### 📦 包含版本" >> release_body.md
+        echo "" >> release_body.md
+        echo "- **Updater.exe** - 控制台版本（适合后台运行）" >> release_body.md
+        echo "- **Updater.GUI.exe** - 图形界面版本（适合用户交互）" >> release_body.md
+        echo "" >> release_body.md
+        echo "---" >> release_body.md
+        echo "" >> release_body.md
         echo "### 🔧 核心能力" >> release_body.md
         echo "- 支持 ZIP / 安装包 / 增量更新模式" >> release_body.md
         echo "- 自动处理文件占用与权限问题" >> release_body.md
         echo "- 更新失败可追踪（日志输出）" >> release_body.md
         echo "- 适用于启动器 / 自动更新程序" >> release_body.md
+        echo "- 支持测试模式（--test）进行功能验证" >> release_body.md
         echo "" >> release_body.md
         echo "---" >> release_body.md
         echo "" >> release_body.md
@@ -137,9 +163,11 @@ jobs:
         VERSION="${{ steps.version.outputs.release_version }}"
 
         gh release create "v$VERSION" \
-          update.zip \
+          "update_console_v$VERSION.zip" \
+          "update_gui_v$VERSION.zip" \
           update_info.json \
-          output/Updater.exe.sha256 \
+          output/console/Updater.exe.sha256 \
+          output/gui/Updater.GUI.exe.sha256 \
           --title "Release v$VERSION (Windows)" \
           --notes-file release_body.md
 
@@ -151,7 +179,7 @@ jobs:
       run: |
         OLD="${{ steps.version.outputs.release_version }}"
         IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD"
-        NEW="$MAJOR.$MINOR.$((PATCH + 1))"
+        NEW="$MAJOR.MINOR.$((PATCH + 1))"
 
         echo "$NEW" > version.ini
 

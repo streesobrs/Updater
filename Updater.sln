@@ -1,9 +1,10 @@
-﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.10.35027.167
+# Visual Studio Version 18
+VisualStudioVersion = 18.3.11520.95 d18.3
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Updater", "Updater\Updater.csproj", "{93957912-AA7B-4A9D-8B02-8F2BB3143550}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Updater.Console", "Updater.Console\Updater.Console.csproj", "{FC9AEFE5-29D3-4866-9AC4-95BDB43FA2C1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +16,10 @@ Global
 		{93957912-AA7B-4A9D-8B02-8F2BB3143550}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{93957912-AA7B-4A9D-8B02-8F2BB3143550}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{93957912-AA7B-4A9D-8B02-8F2BB3143550}.Release|Any CPU.Build.0 = Release|Any CPU
+		{FC9AEFE5-29D3-4866-9AC4-95BDB43FA2C1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FC9AEFE5-29D3-4866-9AC4-95BDB43FA2C1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{FC9AEFE5-29D3-4866-9AC4-95BDB43FA2C1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{FC9AEFE5-29D3-4866-9AC4-95BDB43FA2C1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
