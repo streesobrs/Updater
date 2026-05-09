@@ -49,7 +49,7 @@ jobs:
       run: dotnet restore Updater.sln
 
     - name: Build
-      run: dotnet build Updater.sln --configuration ${{ env.CONFIGURATION }}
+      run: dotnet build Updater.sln --configuration ${{ env.CONFIGURATION }} -r ${{ env.RUNTIME_ID }}
 
     - name: Publish Console version
       run: |
