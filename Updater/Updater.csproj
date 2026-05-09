@@ -10,7 +10,7 @@
 		<PublishSingleFile>true</PublishSingleFile>
 		<Version>1.6.0</Version>
 		<SelfContained>false</SelfContained>
-		<PublishTrimmed>true</PublishTrimmed>
+		<PublishTrimmed>false</PublishTrimmed>
 		<AssemblyName>Updater</AssemblyName>
 		<LangVersion>latest</LangVersion>
 		
