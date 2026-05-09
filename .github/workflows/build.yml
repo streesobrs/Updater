@@ -84,11 +84,11 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y p7zip-full
-        7z a "update_console_v${{ steps.version.outputs.release_version }}.zip" output/console/Updater.exe output/console/Updater.exe.sha256
+        cd output/console && 7z a "../../update_console_v${{ steps.version.outputs.release_version }}.zip" Updater.exe && cd ../..
 
     - name: Package GUI version
       run: |
-        7z a "update_gui_v${{ steps.version.outputs.release_version }}.zip" output/gui/Updater.GUI.exe output/gui/Updater.GUI.exe.sha256
+        cd output/gui && 7z a "../../update_gui_v${{ steps.version.outputs.release_version }}.zip" Updater.GUI.exe && cd ../..
 
     - name: Generate update_info.json
       run: |
