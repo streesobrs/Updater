@@ -13,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      DOTNET_VERSION: '10.0.x'
       RUNTIME_ID: 'win-x64'
       CONFIGURATION: 'Release'
+      FRAMEWORKS: 'net6.0 net8.0 net10.0'
 
     steps:
     # ---------------- checkout ----------------
@@ -40,10 +40,20 @@ jobs:
         echo "date=$DATE" >> "$GITHUB_OUTPUT"
 
     # ---------------- dotnet ----------------
-    - name: Set up .NET
+    - name: Set up .NET 6
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
+        dotnet-version: '6.0.x'
+
+    - name: Set up .NET 8
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Set up .NET 10
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
 
     - name: Restore dependencies
       run: dotnet restore Updater.sln
@@ -51,52 +61,113 @@ jobs:
     - name: Build
       run: dotnet build Updater.sln --configuration ${{ env.CONFIGURATION }}
 
-    - name: Publish Console version
+    # ---------------- publish console versions ----------------
+    - name: Publish Console version for .NET 6
       run: |
         dotnet publish Updater/Updater.csproj \
           -c ${{ env.CONFIGURATION }} \
           -r ${{ env.RUNTIME_ID }} \
+          -f net6.0 \
           --self-contained false \
           -p:PublishSingleFile=true \
-          -o output/console
+          -o output/console/net6.0
 
-    - name: Publish GUI version
+    - name: Publish Console version for .NET 8
+      run: |
+        dotnet publish Updater/Updater.csproj \
+          -c ${{ env.CONFIGURATION }} \
+          -r ${{ env.RUNTIME_ID }} \
+          -f net8.0 \
+          --self-contained false \
+          -p:PublishSingleFile=true \
+          -o output/console/net8.0
+
+    - name: Publish Console version for .NET 10
+      run: |
+        dotnet publish Updater/Updater.csproj \
+          -c ${{ env.CONFIGURATION }} \
+          -r ${{ env.RUNTIME_ID }} \
+          -f net10.0 \
+          --self-contained false \
+          -p:PublishSingleFile=true \
+          -o output/console/net10.0
+
+    # ---------------- publish GUI versions ----------------
+    - name: Publish GUI version for .NET 6
       run: |
         dotnet publish Updater.Console/Updater.Console.csproj \
           -c ${{ env.CONFIGURATION }} \
           -r ${{ env.RUNTIME_ID }} \
+          -f net6.0-windows \
           --self-contained false \
           -p:PublishSingleFile=true \
-          -o output/gui
+          -o output/gui/net6.0
 
+    - name: Publish GUI version for .NET 8
+      run: |
+        dotnet publish Updater.Console/Updater.Console.csproj \
+          -c ${{ env.CONFIGURATION }} \
+          -r ${{ env.RUNTIME_ID }} \
+          -f net8.0-windows \
+          --self-contained false \
+          -p:PublishSingleFile=true \
+          -o output/gui/net8.0
+
+    - name: Publish GUI version for .NET 10
+      run: |
+        dotnet publish Updater.Console/Updater.Console.csproj \
+          -c ${{ env.CONFIGURATION }} \
+          -r ${{ env.RUNTIME_ID }} \
+          -f net10.0-windows \
+          --self-contained false \
+          -p:PublishSingleFile=true \
+          -o output/gui/net10.0
+
+    # ---------------- verify ----------------
     - name: Verify executables
       run: |
-        test -f output/console/Updater.exe
-        test -f output/gui/Updater.GUI.exe
+        test -f output/console/net6.0/Updater.exe
+        test -f output/console/net8.0/Updater.exe
+        test -f output/console/net10.0/Updater.exe
+        test -f output/gui/net6.0/Updater.GUI.exe
+        test -f output/gui/net8.0/Updater.GUI.exe
+        test -f output/gui/net10.0/Updater.GUI.exe
 
     # ---------------- package ----------------
-    - name: Generate SHA256 checksums
-      run: |
-        sha256sum output/console/Updater.exe > output/console/Updater.exe.sha256
-        sha256sum output/gui/Updater.GUI.exe > output/gui/Updater.GUI.exe.sha256
-
-    - name: Package Console version
+    - name: Install 7zip
       run: |
         sudo apt-get update
         sudo apt-get install -y p7zip-full
-        cd output/console && 7z a "../../update_console_v${{ steps.version.outputs.release_version }}.zip" Updater.exe && cd ../..
 
-    - name: Package GUI version
+    - name: Package Console versions
       run: |
-        cd output/gui && 7z a "../../update_gui_v${{ steps.version.outputs.release_version }}.zip" Updater.GUI.exe && cd ../..
+        cd output/console/net6.0 && 7z a "../../../update_console_net6_v${{ steps.version.outputs.release_version }}.zip" Updater.exe && cd ../../..
+        cd output/console/net8.0 && 7z a "../../../update_console_net8_v${{ steps.version.outputs.release_version }}.zip" Updater.exe && cd ../../..
+        cd output/console/net10.0 && 7z a "../../../update_console_net10_v${{ steps.version.outputs.release_version }}.zip" Updater.exe && cd ../../..
+
+    - name: Package GUI versions
+      run: |
+        cd output/gui/net6.0 && 7z a "../../../update_gui_net6_v${{ steps.version.outputs.release_version }}.zip" Updater.GUI.exe && cd ../../..
+        cd output/gui/net8.0 && 7z a "../../../update_gui_net8_v${{ steps.version.outputs.release_version }}.zip" Updater.GUI.exe && cd ../../..
+        cd output/gui/net10.0 && 7z a "../../../update_gui_net10_v${{ steps.version.outputs.release_version }}.zip" Updater.GUI.exe && cd ../../..
+
+    - name: Generate SHA256 checksums
+      run: |
+        sha256sum output/console/net6.0/Updater.exe > output/console_net6.sha256
+        sha256sum output/console/net8.0/Updater.exe > output/console_net8.sha256
+        sha256sum output/console/net10.0/Updater.exe > output/console_net10.sha256
+        sha256sum output/gui/net6.0/Updater.GUI.exe > output/gui_net6.sha256
+        sha256sum output/gui/net8.0/Updater.GUI.exe > output/gui_net8.sha256
+        sha256sum output/gui/net10.0/Updater.GUI.exe > output/gui_net10.sha256
 
     - name: Generate update_info.json
       run: |
         VERSION="${{ steps.version.outputs.release_version }}"
 
-        printf '{\n  "version": "%s",\n  "updateUrl": "https://github.com/%s/releases/download/v%s/update.zip"\n}\n' \
+        printf '{\n  "version": "%s",\n  "updateUrl": "https://github.com/%s/releases/download/v%s/update_console_net10_v%s.zip"\n}\n' \
           "$VERSION" \
           "${{ github.repository }}" \
+          "$VERSION" \
           "$VERSION" > update_info.json
 
     # ---------------- changelog ----------------
@@ -124,8 +195,15 @@ jobs:
         echo "" >> release_body.md
         echo "### 📦 包含版本" >> release_body.md
         echo "" >> release_body.md
-        echo "- **Updater.exe** - 控制台版本（适合后台运行）" >> release_body.md
-        echo "- **Updater.GUI.exe** - 图形界面版本（适合用户交互）" >> release_body.md
+        echo "**控制台版本（适合后台运行）：**" >> release_body.md
+        echo "- `update_console_net6_v$VERSION.zip` - .NET 6" >> release_body.md
+        echo "- `update_console_net8_v$VERSION.zip` - .NET 8" >> release_body.md
+        echo "- `update_console_net10_v$VERSION.zip` - .NET 10" >> release_body.md
+        echo "" >> release_body.md
+        echo "**图形界面版本（适合用户交互）：**" >> release_body.md
+        echo "- `update_gui_net6_v$VERSION.zip` - .NET 6" >> release_body.md
+        echo "- `update_gui_net8_v$VERSION.zip` - .NET 8" >> release_body.md
+        echo "- `update_gui_net10_v$VERSION.zip` - .NET 10" >> release_body.md
         echo "" >> release_body.md
         echo "---" >> release_body.md
         echo "" >> release_body.md
@@ -140,7 +218,7 @@ jobs:
         echo "" >> release_body.md
         echo "### 📦 构建信息" >> release_body.md
         echo "- 平台：Windows x64" >> release_body.md
-        echo "- 运行时：.NET 10.0" >> release_body.md
+        echo "- 运行时：.NET 6 / .NET 8 / .NET 10（请根据目标环境选择）" >> release_body.md
         echo "- 构建方式：GitHub Actions 自动构建" >> release_body.md
         echo "- 发布日期：$DATE" >> release_body.md
         echo "" >> release_body.md
@@ -163,11 +241,19 @@ jobs:
         VERSION="${{ steps.version.outputs.release_version }}"
 
         gh release create "v$VERSION" \
-          "update_console_v$VERSION.zip" \
-          "update_gui_v$VERSION.zip" \
+          "update_console_net6_v$VERSION.zip" \
+          "update_console_net8_v$VERSION.zip" \
+          "update_console_net10_v$VERSION.zip" \
+          "update_gui_net6_v$VERSION.zip" \
+          "update_gui_net8_v$VERSION.zip" \
+          "update_gui_net10_v$VERSION.zip" \
           update_info.json \
-          output/console/Updater.exe.sha256 \
-          output/gui/Updater.GUI.exe.sha256 \
+          output/console_net6.sha256 \
+          output/console_net8.sha256 \
+          output/console_net10.sha256 \
+          output/gui_net6.sha256 \
+          output/gui_net8.sha256 \
+          output/gui_net10.sha256 \
           --title "Release v$VERSION (Windows)" \
           --notes-file release_body.md
 
