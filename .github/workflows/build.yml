@@ -211,43 +211,45 @@ jobs:
         VERSION="${{ steps.version.outputs.release_version }}"
         REPO="${{ github.repository }}"
 
-        printf '{
-  "version": "%s",
-  "releases": {
-    "console": {
-      "net6": {
-        "url": "https://github.com/%s/releases/download/v%s/update_console_net6_v%s.zip",
-        "runtime": ".NET 6"
-      },
-      "net8": {
-        "url": "https://github.com/%s/releases/download/v%s/update_console_net8_v%s.zip",
-        "runtime": ".NET 8"
-      },
-      "net10": {
-        "url": "https://github.com/%s/releases/download/v%s/update_console_net10_v%s.zip",
-        "runtime": ".NET 10"
-      }
-    },
-    "gui": {
-      "net6": {
-        "url": "https://github.com/%s/releases/download/v%s/update_gui_net6_v%s.zip",
-        "runtime": ".NET 6"
-      },
-      "net8": {
-        "url": "https://github.com/%s/releases/download/v%s/update_gui_net8_v%s.zip",
-        "runtime": ".NET 8"
-      },
-      "net10": {
-        "url": "https://github.com/%s/releases/download/v%s/update_gui_net10_v%s.zip",
-        "runtime": ".NET 10"
-      }
-    }
-  },
-  "default": {
-    "console": "https://github.com/%s/releases/download/v%s/update_console_net10_v%s.zip",
-    "gui": "https://github.com/%s/releases/download/v%s/update_gui_net10_v%s.zip"
-  }
-}\n' "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" > update_info.json
+        cat > update_info.json << 'EOFJSON'
+        {
+          "version": "${VERSION}",
+          "releases": {
+            "console": {
+              "net6": {
+                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/update_console_net6_v${VERSION}.zip",
+                "runtime": ".NET 6"
+              },
+              "net8": {
+                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/update_console_net8_v${VERSION}.zip",
+                "runtime": ".NET 8"
+              },
+              "net10": {
+                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/update_console_net10_v${VERSION}.zip",
+                "runtime": ".NET 10"
+              }
+            },
+            "gui": {
+              "net6": {
+                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/update_gui_net6_v${VERSION}.zip",
+                "runtime": ".NET 6"
+              },
+              "net8": {
+                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/update_gui_net8_v${VERSION}.zip",
+                "runtime": ".NET 8"
+              },
+              "net10": {
+                "url": "https://github.com/${REPO}/releases/download/v${VERSION}/update_gui_net10_v${VERSION}.zip",
+                "runtime": ".NET 10"
+              }
+            }
+          },
+          "default": {
+            "console": "https://github.com/${REPO}/releases/download/v${VERSION}/update_console_net10_v${VERSION}.zip",
+            "gui": "https://github.com/${REPO}/releases/download/v${VERSION}/update_gui_net10_v${VERSION}.zip"
+          }
+        }
+        EOFJSON
 
     # ---------------- changelog ----------------
     - name: Generate changelog
@@ -275,14 +277,14 @@ jobs:
         echo "### 📦 包含版本" >> release_body.md
         echo "" >> release_body.md
         echo "**控制台版本（适合后台运行）：**" >> release_body.md
-        echo "- `update_console_net6_v$VERSION.zip` - .NET 6" >> release_body.md
-        echo "- `update_console_net8_v$VERSION.zip` - .NET 8" >> release_body.md
-        echo "- `update_console_net10_v$VERSION.zip` - .NET 10" >> release_body.md
+        echo "- \`update_console_net6_v$VERSION.zip\` - .NET 6" >> release_body.md
+        echo "- \`update_console_net8_v$VERSION.zip\` - .NET 8" >> release_body.md
+        echo "- \`update_console_net10_v$VERSION.zip\` - .NET 10" >> release_body.md
         echo "" >> release_body.md
         echo "**图形界面版本（适合用户交互）：**" >> release_body.md
-        echo "- `update_gui_net6_v$VERSION.zip` - .NET 6" >> release_body.md
-        echo "- `update_gui_net8_v$VERSION.zip` - .NET 8" >> release_body.md
-        echo "- `update_gui_net10_v$VERSION.zip` - .NET 10" >> release_body.md
+        echo "- \`update_gui_net6_v$VERSION.zip\` - .NET 6" >> release_body.md
+        echo "- \`update_gui_net8_v$VERSION.zip\` - .NET 8" >> release_body.md
+        echo "- \`update_gui_net10_v$VERSION.zip\` - .NET 10" >> release_body.md
         echo "" >> release_body.md
         echo "---" >> release_body.md
         echo "" >> release_body.md
