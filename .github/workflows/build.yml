@@ -209,45 +209,43 @@ jobs:
         VERSION="${{ steps.version.outputs.release_version }}"
         REPO="${{ github.repository }}"
 
-        cat > update_info.json <<EOF
-{
-  "version": "$VERSION",
+        printf '{
+  "version": "%s",
   "releases": {
     "console": {
       "net6": {
-        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_console_net6_v$VERSION.zip",
+        "url": "https://github.com/%s/releases/download/v%s/update_console_net6_v%s.zip",
         "runtime": ".NET 6"
       },
       "net8": {
-        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_console_net8_v$VERSION.zip",
+        "url": "https://github.com/%s/releases/download/v%s/update_console_net8_v%s.zip",
         "runtime": ".NET 8"
       },
       "net10": {
-        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_console_net10_v$VERSION.zip",
+        "url": "https://github.com/%s/releases/download/v%s/update_console_net10_v%s.zip",
         "runtime": ".NET 10"
       }
     },
     "gui": {
       "net6": {
-        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_gui_net6_v$VERSION.zip",
+        "url": "https://github.com/%s/releases/download/v%s/update_gui_net6_v%s.zip",
         "runtime": ".NET 6"
       },
       "net8": {
-        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_gui_net8_v$VERSION.zip",
+        "url": "https://github.com/%s/releases/download/v%s/update_gui_net8_v%s.zip",
         "runtime": ".NET 8"
       },
       "net10": {
-        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_gui_net10_v$VERSION.zip",
+        "url": "https://github.com/%s/releases/download/v%s/update_gui_net10_v%s.zip",
         "runtime": ".NET 10"
       }
     }
   },
   "default": {
-    "console": "https://github.com/$REPO/releases/download/v$VERSION/update_console_net10_v$VERSION.zip",
-    "gui": "https://github.com/$REPO/releases/download/v$VERSION/update_gui_net10_v$VERSION.zip"
+    "console": "https://github.com/%s/releases/download/v%s/update_console_net10_v%s.zip",
+    "gui": "https://github.com/%s/releases/download/v%s/update_gui_net10_v%s.zip"
   }
-}
-EOF
+}\n' "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" "$REPO" "$VERSION" "$VERSION" > update_info.json
 
     # ---------------- changelog ----------------
     - name: Generate changelog
