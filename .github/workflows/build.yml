@@ -267,8 +267,18 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.release_version }}"
         DATE="${{ steps.version.outputs.date }}"
+        
+        # 计算递增后的版本号（用于标题）
+        NEXT_VERSION="$VERSION"
+        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          NEW_PATCH=$((PATCH + 1))
+          NEXT_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+        fi
 
-        echo "## 🚀 Updater v$VERSION" > release_body.md
+        echo "## 🚀 Updater v$NEXT_VERSION" > release_body.md
         echo "" >> release_body.md
         echo "Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**，用于在主程序退出后安全完成更新并重新启动程序。" >> release_body.md
         echo "" >> release_body.md
@@ -322,51 +332,58 @@ jobs:
         VERSION="${{ steps.version.outputs.release_version }}"
         RELEASE_TYPE="${{ steps.version.outputs.release_type }}"
         
-        # 递增版本号（所有类型都递增）
-        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-          MAJOR="${BASH_REMATCH[1]}"
-          MINOR="${BASH_REMATCH[2]}"
-          PATCH="${BASH_REMATCH[3]}"
-          NEW_PATCH=$((PATCH + 1))
-          NEXT_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
-        else
-          NEXT_VERSION="$VERSION"
+        # 优先使用用户推送的标签
+        TAG_NAME=""
+        if [ "${{ github.ref_type }}" = "tag" ]; then
+          TAG_NAME="${{ github.ref_name }}"
         fi
         
-        # 根据发布类型生成标签和标题
-        TAG_NAME="v$NEXT_VERSION"
-        TITLE="Release v$NEXT_VERSION (Windows)"
+        # 如果没有标签，根据发布类型生成版本号
+        if [ -z "$TAG_NAME" ]; then
+          # 递增版本号
+          NEXT_VERSION="$VERSION"
+          if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            NEW_PATCH=$((PATCH + 1))
+            NEXT_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          fi
+          
+          TAG_NAME="v$NEXT_VERSION"
+          
+          case "$RELEASE_TYPE" in
+            beta)
+              BETA_BUILD=$(git tag --list "v${NEXT_VERSION}-beta.*" 2>/dev/null | sort -V | tail -1 | sed "s/v${NEXT_VERSION}-beta\.//")
+              if [ -z "$BETA_BUILD" ]; then
+                BETA_BUILD=1
+              else
+                BETA_BUILD=$((BETA_BUILD + 1))
+              fi
+              TAG_NAME="v${NEXT_VERSION}-beta.${BETA_BUILD}"
+              ;;
+            preview)
+              PREVIEW_BUILD=$(git tag --list "v${NEXT_VERSION}-preview.*" 2>/dev/null | sort -V | tail -1 | sed "s/v${NEXT_VERSION}-preview\.//")
+              if [ -z "$PREVIEW_BUILD" ]; then
+                PREVIEW_BUILD=1
+              else
+                PREVIEW_BUILD=$((PREVIEW_BUILD + 1))
+              fi
+              TAG_NAME="v${NEXT_VERSION}-preview.${PREVIEW_BUILD}"
+              ;;
+          esac
+        fi
+        
+        # 从标签名提取版本号用于标题
+        DISPLAY_VERSION="${TAG_NAME#v}"
+        TITLE="Release v${DISPLAY_VERSION} (Windows)"
         PRERELEASE_FLAG=""
         
-        case "$RELEASE_TYPE" in
-          beta)
-            # 获取 beta build 号（从上次发布的标签中提取）
-            BETA_BUILD=$(git tag --list "v${NEXT_VERSION}-beta.*" 2>/dev/null | sort -V | tail -1 | sed "s/v${NEXT_VERSION}-beta\.//")
-            if [ -z "$BETA_BUILD" ]; then
-              BETA_BUILD=1
-            else
-              BETA_BUILD=$((BETA_BUILD + 1))
-            fi
-            TAG_NAME="v${NEXT_VERSION}-beta.${BETA_BUILD}"
-            TITLE="Beta v${NEXT_VERSION}-beta.${BETA_BUILD} (Windows)"
-            PRERELEASE_FLAG="--prerelease"
-            ;;
-          preview)
-            # 获取 preview build 号
-            PREVIEW_BUILD=$(git tag --list "v${NEXT_VERSION}-preview.*" 2>/dev/null | sort -V | tail -1 | sed "s/v${NEXT_VERSION}-preview\.//")
-            if [ -z "$PREVIEW_BUILD" ]; then
-              PREVIEW_BUILD=1
-            else
-              PREVIEW_BUILD=$((PREVIEW_BUILD + 1))
-            fi
-            TAG_NAME="v${NEXT_VERSION}-preview.${PREVIEW_BUILD}"
-            TITLE="Preview v${NEXT_VERSION}-preview.${PREVIEW_BUILD} (Windows)"
-            PRERELEASE_FLAG="--prerelease"
-            ;;
-          *)
-            # release 类型
-            ;;
-        esac
+        # 判断是否为预发布版本
+        if [[ "$TAG_NAME" == *"-beta"* || "$TAG_NAME" == *"-preview"* ]]; then
+          PRERELEASE_FLAG="--prerelease"
+          TITLE="$(echo "$TAG_NAME" | sed 's/v//' | sed 's/-beta\..*/ Beta/' | sed 's/-preview\..*/ Preview/') (Windows)"
+        fi
 
         gh release create "$TAG_NAME" \
           "update_console_net6_v${VERSION}.zip" \
