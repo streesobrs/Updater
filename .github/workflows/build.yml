@@ -369,12 +369,12 @@ jobs:
         esac
 
         gh release create "$TAG_NAME" \
-          "update_console_net6_v${NEXT_VERSION}.zip" \
-          "update_console_net8_v${NEXT_VERSION}.zip" \
-          "update_console_net10_v${NEXT_VERSION}.zip" \
-          "update_gui_net6_v${NEXT_VERSION}.zip" \
-          "update_gui_net8_v${NEXT_VERSION}.zip" \
-          "update_gui_net10_v${NEXT_VERSION}.zip" \
+          "update_console_net6_v${VERSION}.zip" \
+          "update_console_net8_v${VERSION}.zip" \
+          "update_console_net10_v${VERSION}.zip" \
+          "update_gui_net6_v${VERSION}.zip" \
+          "update_gui_net8_v${VERSION}.zip" \
+          "update_gui_net10_v${VERSION}.zip" \
           update_info.json \
           output/console_net6.sha256 \
           output/console_net8.sha256 \
