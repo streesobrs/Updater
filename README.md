@@ -147,11 +147,11 @@ Updater.exe -h
 # 构建解决方案
 dotnet build Updater.sln
 
-# 发布 GUI 版本
+# 发布控制台版本
 dotnet publish Updater/Updater.csproj -c Release -o bin/Release/net10.0/publish
 
-# 发布控制台版本
-dotnet publish Updater.Console/Updater.Console.csproj -c Release -o bin/Release/net10.0/console
+# 发布 GUI 版本
+dotnet publish Updater.Console/Updater.Console.csproj -c Release -o bin/Release/net10.0/gui
 ```
 
 ## 版本历史

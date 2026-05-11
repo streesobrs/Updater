@@ -3,9 +3,23 @@ name: Build, Package, and Release for Windows
 on:
   push:
     branches: [ master ]
+    tags:
+      - 'v*'
+      - 'v*-beta'
+      - 'v*-preview'
   pull_request:
     branches: [ master ]
   workflow_dispatch:
+    inputs:
+      release_type:
+        description: '发布类型'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - beta
+          - preview
 
 jobs:
   build-and-release:
@@ -48,8 +62,26 @@ jobs:
 
         DATE=$(date +'%Y-%m-%d')
 
+        # 确定发布类型
+        # 优先级：1. 手动触发输入 2. 标签名 3. 默认release
+        RELEASE_TYPE="release"
+        
+        # 检查手动触发输入
+        if [ "${{ github.event.inputs.release_type }}" != "" ]; then
+          RELEASE_TYPE="${{ github.event.inputs.release_type }}"
+        # 检查标签
+        elif [ "${{ github.ref_type }}" = "tag" ]; then
+          TAG_NAME="${{ github.ref_name }}"
+          if [[ "$TAG_NAME" == *"-beta" ]]; then
+            RELEASE_TYPE="beta"
+          elif [[ "$TAG_NAME" == *"-preview" ]]; then
+            RELEASE_TYPE="preview"
+          fi
+        fi
+
         echo "release_version=$VERSION" >> "$GITHUB_OUTPUT"
         echo "date=$DATE" >> "$GITHUB_OUTPUT"
+        echo "release_type=$RELEASE_TYPE" >> "$GITHUB_OUTPUT"
 
     # ---------------- dotnet ----------------
     - name: Set up .NET 6
@@ -175,12 +207,47 @@ jobs:
     - name: Generate update_info.json
       run: |
         VERSION="${{ steps.version.outputs.release_version }}"
+        REPO="${{ github.repository }}"
 
-        printf '{\n  "version": "%s",\n  "updateUrl": "https://github.com/%s/releases/download/v%s/update_console_net10_v%s.zip"\n}\n' \
-          "$VERSION" \
-          "${{ github.repository }}" \
-          "$VERSION" \
-          "$VERSION" > update_info.json
+        cat > update_info.json <<EOF
+{
+  "version": "$VERSION",
+  "releases": {
+    "console": {
+      "net6": {
+        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_console_net6_v$VERSION.zip",
+        "runtime": ".NET 6"
+      },
+      "net8": {
+        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_console_net8_v$VERSION.zip",
+        "runtime": ".NET 8"
+      },
+      "net10": {
+        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_console_net10_v$VERSION.zip",
+        "runtime": ".NET 10"
+      }
+    },
+    "gui": {
+      "net6": {
+        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_gui_net6_v$VERSION.zip",
+        "runtime": ".NET 6"
+      },
+      "net8": {
+        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_gui_net8_v$VERSION.zip",
+        "runtime": ".NET 8"
+      },
+      "net10": {
+        "url": "https://github.com/$REPO/releases/download/v$VERSION/update_gui_net10_v$VERSION.zip",
+        "runtime": ".NET 10"
+      }
+    }
+  },
+  "default": {
+    "console": "https://github.com/$REPO/releases/download/v$VERSION/update_console_net10_v$VERSION.zip",
+    "gui": "https://github.com/$REPO/releases/download/v$VERSION/update_gui_net10_v$VERSION.zip"
+  }
+}
+EOF
 
     # ---------------- changelog ----------------
     - name: Generate changelog
@@ -251,14 +318,61 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         VERSION="${{ steps.version.outputs.release_version }}"
+        RELEASE_TYPE="${{ steps.version.outputs.release_type }}"
+        
+        # 递增版本号（所有类型都递增）
+        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          NEW_PATCH=$((PATCH + 1))
+          NEXT_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+        else
+          NEXT_VERSION="$VERSION"
+        fi
+        
+        # 根据发布类型生成标签和标题
+        TAG_NAME="v$NEXT_VERSION"
+        TITLE="Release v$NEXT_VERSION (Windows)"
+        PRERELEASE_FLAG=""
+        
+        case "$RELEASE_TYPE" in
+          beta)
+            # 获取 beta build 号（从上次发布的标签中提取）
+            BETA_BUILD=$(git tag --list "v${NEXT_VERSION}-beta.*" 2>/dev/null | sort -V | tail -1 | sed "s/v${NEXT_VERSION}-beta\.//")
+            if [ -z "$BETA_BUILD" ]; then
+              BETA_BUILD=1
+            else
+              BETA_BUILD=$((BETA_BUILD + 1))
+            fi
+            TAG_NAME="v${NEXT_VERSION}-beta.${BETA_BUILD}"
+            TITLE="Beta v${NEXT_VERSION}-beta.${BETA_BUILD} (Windows)"
+            PRERELEASE_FLAG="--prerelease"
+            ;;
+          preview)
+            # 获取 preview build 号
+            PREVIEW_BUILD=$(git tag --list "v${NEXT_VERSION}-preview.*" 2>/dev/null | sort -V | tail -1 | sed "s/v${NEXT_VERSION}-preview\.//")
+            if [ -z "$PREVIEW_BUILD" ]; then
+              PREVIEW_BUILD=1
+            else
+              PREVIEW_BUILD=$((PREVIEW_BUILD + 1))
+            fi
+            TAG_NAME="v${NEXT_VERSION}-preview.${PREVIEW_BUILD}"
+            TITLE="Preview v${NEXT_VERSION}-preview.${PREVIEW_BUILD} (Windows)"
+            PRERELEASE_FLAG="--prerelease"
+            ;;
+          *)
+            # release 类型
+            ;;
+        esac
 
-        gh release create "v$VERSION" \
-          "update_console_net6_v$VERSION.zip" \
-          "update_console_net8_v$VERSION.zip" \
-          "update_console_net10_v$VERSION.zip" \
-          "update_gui_net6_v$VERSION.zip" \
-          "update_gui_net8_v$VERSION.zip" \
-          "update_gui_net10_v$VERSION.zip" \
+        gh release create "$TAG_NAME" \
+          "update_console_net6_v${NEXT_VERSION}.zip" \
+          "update_console_net8_v${NEXT_VERSION}.zip" \
+          "update_console_net10_v${NEXT_VERSION}.zip" \
+          "update_gui_net6_v${NEXT_VERSION}.zip" \
+          "update_gui_net8_v${NEXT_VERSION}.zip" \
+          "update_gui_net10_v${NEXT_VERSION}.zip" \
           update_info.json \
           output/console_net6.sha256 \
           output/console_net8.sha256 \
@@ -266,12 +380,13 @@ jobs:
           output/gui_net6.sha256 \
           output/gui_net8.sha256 \
           output/gui_net10.sha256 \
-          --title "Release v$VERSION (Windows)" \
-          --notes-file release_body.md
+          --title "$TITLE" \
+          --notes-file release_body.md \
+          $PRERELEASE_FLAG
 
     # ---------------- bump version after release ----------------
     - name: Bump version.ini after release
-      if: success()
+      if: success() && "${{ steps.version.outputs.release_type }}" == "release"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
@@ -288,7 +403,7 @@ jobs:
         MINOR="${BASH_REMATCH[2]}"
         PATCH="${BASH_REMATCH[3]}"
         
-        # 递增补丁版本号
+        # 递增补丁版本号（仅正式版）
         NEW_PATCH=$((PATCH + 1))
         NEW="$MAJOR.$MINOR.$NEW_PATCH"
 
