@@ -29,8 +29,20 @@ jobs:
       id: version
       run: |
         if [ -f version.ini ]; then
-          VERSION=$(grep -oP '^\d+\.\d+\.\d+' version.ini)
+          # 使用 cat 读取文件，并用 sed 移除可能的 BOM 和空白字符
+          CONTENT=$(cat version.ini | sed 's/^\xEF\xBB\xBF//' | tr -d ' \t\n\r')
+          # 使用正则提取版本号
+          if [[ "$CONTENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+            VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+          else
+            VERSION=""
+          fi
         else
+          VERSION=""
+        fi
+        
+        # 如果版本号为空或格式不正确，使用默认值
+        if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
           VERSION="1.0.0"
         fi
 
@@ -264,8 +276,21 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         OLD="${{ steps.version.outputs.release_version }}"
-        IFS='.' read -r MAJOR MINOR PATCH <<< "$OLD"
-        NEW="$MAJOR.MINOR.$((PATCH + 1))"
+        
+        # 验证版本号格式
+        if [[ ! "$OLD" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          echo "Error: Invalid version format '$OLD', using default 1.0.0"
+          OLD="1.0.0"
+        fi
+        
+        # 使用正则捕获组提取版本号各部分
+        MAJOR="${BASH_REMATCH[1]}"
+        MINOR="${BASH_REMATCH[2]}"
+        PATCH="${BASH_REMATCH[3]}"
+        
+        # 递增补丁版本号
+        NEW_PATCH=$((PATCH + 1))
+        NEW="$MAJOR.$MINOR.$NEW_PATCH"
 
         echo "$NEW" > version.ini
 
