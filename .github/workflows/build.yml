@@ -66,18 +66,24 @@ jobs:
         GIT_HASH=$(git rev-parse --short HEAD)
         GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-        # 计算递增后的版本号
-        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-          MAJOR="${BASH_REMATCH[1]}"
-          MINOR="${BASH_REMATCH[2]}"
-          PATCH="${BASH_REMATCH[3]}"
-          NEW_PATCH=$((PATCH + 1))
-          NEXT_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+        # 检查当前版本是否已存在 Release
+        if gh release view "v$VERSION" &>/dev/null; then
+          # 已存在，递增版本号
+          if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            MAJOR="${BASH_REMATCH[1]}"
+            MINOR="${BASH_REMATCH[2]}"
+            PATCH="${BASH_REMATCH[3]}"
+            NEW_PATCH=$((PATCH + 1))
+            FINAL_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          else
+            FINAL_VERSION="1.0.1"
+          fi
         else
-          NEXT_VERSION="1.0.1"
+          # 不存在，直接使用当前版本号
+          FINAL_VERSION="$VERSION"
         fi
 
-        echo "release_version=$NEXT_VERSION" >> "$GITHUB_OUTPUT"
+        echo "release_version=$FINAL_VERSION" >> "$GITHUB_OUTPUT"
         echo "source_version=$VERSION" >> "$GITHUB_OUTPUT"
         echo "date=$DATE" >> "$GITHUB_OUTPUT"
         echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
@@ -288,18 +294,8 @@ jobs:
       run: |
         VERSION="${{ steps.version.outputs.release_version }}"
         DATE="${{ steps.version.outputs.date }}"
-        
-        # 计算递增后的版本号（用于标题）
-        NEXT_VERSION="$VERSION"
-        if [[ "$VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-          MAJOR="${BASH_REMATCH[1]}"
-          MINOR="${BASH_REMATCH[2]}"
-          PATCH="${BASH_REMATCH[3]}"
-          NEW_PATCH=$((PATCH + 1))
-          NEXT_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
-        fi
 
-        echo "## 🚀 Updater v$NEXT_VERSION" > release_body.md
+        echo "## 🚀 Updater v$VERSION" > release_body.md
         echo "" >> release_body.md
         echo "Updater 是一个 **用于 Windows 桌面程序的通用更新执行器**，用于在主程序退出后安全完成更新并重新启动程序。" >> release_body.md
         echo "" >> release_body.md
