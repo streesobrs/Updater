@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
@@ -1881,6 +1881,14 @@ namespace Updater
         /// <returns>异步任务</returns>
         static async Task HandleInstallerUpdate(string installerPath, string targetDir)
         {
+            // 参数安全：如果传进来的是 .zip 文件，自动转为 ZIP 更新处理
+            if (Path.GetExtension(installerPath)?.Equals(".zip", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                Log($"检测到安装包为ZIP格式，自动切换为ZIP更新处理：{installerPath}", LogLevel.Warning);
+                await HandleZipUpdate(installerPath, targetDir);
+                return;
+            }
+
             using (var performanceMonitor = new PerformanceMonitor("处理安装包更新"))
             {
                 using (var process = new Process())
