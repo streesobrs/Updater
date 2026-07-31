@@ -4,7 +4,7 @@ VisualStudioVersion = 18.3.11520.95 d18.3
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Updater", "Updater\Updater.csproj", "{93957912-AA7B-4A9D-8B02-8F2BB3143550}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Updater.Console", "Updater.Console\Updater.Console.csproj", "{FC9AEFE5-29D3-4866-9AC4-95BDB43FA2C1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Updater.GUI", "Updater.GUI\Updater.GUI.csproj", "{FC9AEFE5-29D3-4866-9AC4-95BDB43FA2C1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

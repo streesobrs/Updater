@@ -20,11 +20,11 @@ Updater/
 │   ├── Program.cs         # 核心更新逻辑
 │   ├── Updater.csproj     # 项目配置
 │   └── Properties/        # 发布配置
-├── Updater.Console/       # GUI版本（WPF）
+├── Updater.GUI/           # GUI版本（WPF）
 │   ├── MainWindow.xaml    # 主窗口界面
 │   ├── MainWindow.xaml.cs # 主窗口逻辑
 │   ├── Program.cs         # WPF应用入口
-│   └── Updater.Console.csproj
+│   └── Updater.GUI.csproj
 ├── version.ini            # 版本信息
 └── Updater.sln            # 解决方案文件
 ```
@@ -151,7 +151,7 @@ dotnet build Updater.sln
 dotnet publish Updater/Updater.csproj -c Release -o bin/Release/net10.0/publish
 
 # 发布 GUI 版本
-dotnet publish Updater.Console/Updater.Console.csproj -c Release -o bin/Release/net10.0/gui
+dotnet publish Updater.GUI/Updater.GUI.csproj -c Release -o bin/Release/net10.0/gui
 ```
 
 ## 版本历史

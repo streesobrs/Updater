@@ -448,6 +448,10 @@ namespace Updater
         /// <returns>异步任务</returns>
         static async Task MainAsync(string[] args)
         {
+            // 检测是否为非交互模式（被其他进程调用，输出被重定向）
+            bool isNonInteractive = !Environment.UserInteractive || Console.IsOutputRedirected;
+            int exitCode = 0;
+
             // 优先处理帮助命令：显示帮助后直接退出
             if (_needShowHelp)
             {
@@ -467,95 +471,99 @@ namespace Updater
                 if (_isTestMode)
                 {
                     await RunExtractionTest();
-                    return;
-                }
-
-                // 验证参数并提取参数值
-                if (!ValidateArguments(args, out string mainAppExe, out string packagePath,
-                    out string targetDir, out bool deleteAfterUpdate, out string updateType))
-                {
-                    WaitForExit();
-                    return;
-                }
-
-                // 创建备份目录
-                CreateBackup(targetDir);
-
-                // 根据更新类型执行相应的更新操作
-                bool updateSuccess = false;
-                try
-                {
-                    if (updateType == Config.UpdateTypeZip)
-                    {
-                        Log("===== 开始处理ZIP更新 =====", LogLevel.Info);
-                        await HandleZipUpdate(packagePath, targetDir);
-                    }
-                    else if (updateType == Config.UpdateTypeInstaller)
-                    {
-                        Log("===== 开始处理安装包更新 =====", LogLevel.Info);
-                        await HandleInstallerUpdate(packagePath, targetDir);
-                    }
-                    else if (updateType == Config.UpdateTypeIncremental)
-                    {
-                        Log("===== 开始处理增量包更新 =====", LogLevel.Info);
-                        await HandleIncrementalUpdate(packagePath, targetDir);
-                    }
-                    else
-                    {
-                        Log($"错误：不支持的更新类型 - {updateType}", LogLevel.Error);
-                        Log($"支持的更新类型：{Config.UpdateTypeZip} / {Config.UpdateTypeInstaller} / {Config.UpdateTypeIncremental}", LogLevel.Info);
-                        WaitForExit();
-                        return;
-                    }
-                    updateSuccess = true;
-                }
-                catch (Exception ex)
-                {
-                    Log($"更新过程中发生错误，将尝试回滚: {ex.Message}", LogLevel.Error);
-                    RollbackUpdate(targetDir);
-                    throw;
-                }
-
-                // 根据用户选择决定是否删除安装包
-                if (deleteAfterUpdate)
-                {
-                    DeletePackage(packagePath);
                 }
                 else
                 {
-                    Log("用户选择保留安装包，不执行删除", LogLevel.Info);
-                }
+                    // 验证参数并提取参数值
+                    if (!ValidateArguments(args, out string mainAppExe, out string packagePath,
+                        out string targetDir, out bool deleteAfterUpdate, out string updateType))
+                    {
+                        exitCode = 1;
+                        WaitForExit(isNonInteractive);
+                        return;
+                    }
 
-                // 记录更新完成时间并启动主程序
-                RecordUpdateCompletionTime(targetDir);
-                LaunchMainApplication(targetDir, mainAppExe);
+                    // 创建备份目录
+                    CreateBackup(targetDir);
 
-                // 更新成功后清理备份
-                if (updateSuccess && !string.IsNullOrEmpty(_backupDir) && _fileSystem.DirectoryExists(_backupDir))
-                {
+                    // 根据更新类型执行相应的更新操作
+                    bool updateSuccess = false;
                     try
                     {
-                        _fileSystem.DeleteDirectory(_backupDir, true);
-                        Log($"已清理备份目录: {_backupDir}", LogLevel.Info);
+                        if (updateType == Config.UpdateTypeZip)
+                        {
+                            Log("===== 开始处理ZIP更新 =====", LogLevel.Info);
+                            await HandleZipUpdate(packagePath, targetDir);
+                        }
+                        else if (updateType == Config.UpdateTypeInstaller)
+                        {
+                            Log("===== 开始处理安装包更新 =====", LogLevel.Info);
+                            await HandleInstallerUpdate(packagePath, targetDir);
+                        }
+                        else if (updateType == Config.UpdateTypeIncremental)
+                        {
+                            Log("===== 开始处理增量包更新 =====", LogLevel.Info);
+                            await HandleIncrementalUpdate(packagePath, targetDir);
+                        }
+                        else
+                        {
+                            Log($"错误：不支持的更新类型 - {updateType}", LogLevel.Error);
+                            Log($"支持的更新类型：{Config.UpdateTypeZip} / {Config.UpdateTypeInstaller} / {Config.UpdateTypeIncremental}", LogLevel.Info);
+                            exitCode = 1;
+                            WaitForExit(isNonInteractive);
+                            return;
+                        }
+                        updateSuccess = true;
                     }
                     catch (Exception ex)
                     {
-                        Log($"清理备份目录失败: {ex.Message}", LogLevel.Warning);
+                        Log($"更新过程中发生错误，将尝试回滚: {ex.Message}", LogLevel.Error);
+                        RollbackUpdate(targetDir);
+                        throw;
+                    }
+
+                    // 根据用户选择决定是否删除安装包
+                    if (deleteAfterUpdate)
+                    {
+                        DeletePackage(packagePath);
+                    }
+                    else
+                    {
+                        Log("用户选择保留安装包，不执行删除", LogLevel.Info);
+                    }
+
+                    // 记录更新完成时间并启动主程序
+                    RecordUpdateCompletionTime(targetDir);
+                    LaunchMainApplication(targetDir, mainAppExe);
+
+                    // 更新成功后清理备份
+                    if (updateSuccess && !string.IsNullOrEmpty(_backupDir) && _fileSystem.DirectoryExists(_backupDir))
+                    {
+                        try
+                        {
+                            _fileSystem.DeleteDirectory(_backupDir, true);
+                            Log($"已清理备份目录: {_backupDir}", LogLevel.Info);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"清理备份目录失败: {ex.Message}", LogLevel.Warning);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
+                exitCode = 1;
                 Log($"致命错误：{ex}", LogLevel.Error);
                 Log($"提示：输入 {AppDomain.CurrentDomain.FriendlyName} {Config.HelpArg1} 查看正确使用方法", LogLevel.Info);
-                WaitForExit();
+                WaitForExit(isNonInteractive);
             }
             finally
             {
                 try
                 {
                     _stopwatch?.Stop();
-                    await GracefulShutdown();
+                    await GracefulShutdown(isNonInteractive, exitCode);
                 }
                 catch (Exception shutdownEx)
                 {
@@ -565,6 +573,9 @@ namespace Updater
                 {
                     _logWriter?.Dispose();
                 }
+
+                // 确保设置进程退出码（如果GracefulShutdown中没有Environment.Exit的话）
+                Environment.ExitCode = exitCode;
             }
         }
 
@@ -2129,9 +2140,17 @@ namespace Updater
         /// 优雅关闭程序
         /// </summary>
         /// <returns>异步任务</returns>
-        static async Task GracefulShutdown()
+        static async Task GracefulShutdown(bool isNonInteractive = false, int exitCode = 0)
         {
             Log("更新操作已完成", LogLevel.Info);
+
+            if (isNonInteractive)
+            {
+                // 非交互模式：不等待，直接退出并设置正确退出码
+                Log("非交互模式，立即退出", LogLevel.Info);
+                Environment.Exit(exitCode);
+                return;
+            }
 
             int waitSeconds = _isTestMode ? Config.TestModeShutdownWaitSeconds : Config.GracefulShutdownWaitSeconds;
             Log($"{waitSeconds}秒后自动退出...", LogLevel.Info);
@@ -2143,14 +2162,22 @@ namespace Updater
             }
 
             Log("程序已退出", LogLevel.Info);
-            Environment.Exit(0);
+            Environment.Exit(exitCode);
         }
 
         /// <summary>
         /// 等待用户按键退出
         /// </summary>
-        static void WaitForExit()
+        static void WaitForExit(bool isNonInteractive = false)
         {
+            if (isNonInteractive)
+            {
+                // 非交互模式：不等待Console.ReadKey（会崩溃），直接返回
+                // 退出码已由调用方设置
+                Log("非交互模式，跳过等待按键", LogLevel.Info);
+                return;
+            }
+
             Log("按任意键退出...", LogLevel.Info);
             Console.ReadKey();
             Environment.Exit(1);

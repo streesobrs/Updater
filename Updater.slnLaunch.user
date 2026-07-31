@@ -1,0 +1,15 @@
+[
+  {
+    "Name": "新建配置文件",
+    "Projects": [
+      {
+        "Path": "Updater\\Updater.csproj",
+        "Action": "Start"
+      },
+      {
+        "Path": "Updater.GUI\\Updater.GUI.csproj",
+        "Action": "Start"
+      }
+    ]
+  }
+]

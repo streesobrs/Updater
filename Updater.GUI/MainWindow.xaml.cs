@@ -148,14 +148,13 @@ namespace Updater.GUI
                 }
 
                 // 使用进程调用控制台版本执行测试
-                string consoleExePath = Path.Combine(
-                    Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location),
-                    "Updater.exe"
-                );
+                // 注意：单文件发布时 Assembly.Location 返回空字符串，使用 AppContext.BaseDirectory 获取应用目录
+                string appBaseDirForTest = AppContext.BaseDirectory;
+                string consoleExePathForTest = Path.Combine(appBaseDirForTest, "Updater.exe");
 
-                if (!File.Exists(consoleExePath))
+                if (!File.Exists(consoleExePathForTest))
                 {
-                    Log($"错误：控制台版本不存在 - {consoleExePath}");
+                    Log($"错误：控制台版本不存在 - {consoleExePathForTest}");
                     StatusText.Text = "控制台版本未找到";
                     CloseButton.IsEnabled = true;
                     return;
@@ -173,11 +172,11 @@ namespace Updater.GUI
                     arguments += $" {_performanceTestScale.Value}";
                 }
 
-                Log($"启动控制台测试: {consoleExePath} {arguments}");
+                Log($"启动控制台测试: {consoleExePathForTest} {arguments}");
 
                 using (var process = new Process())
                 {
-                    process.StartInfo.FileName = consoleExePath;
+                    process.StartInfo.FileName = consoleExePathForTest;
                     process.StartInfo.Arguments = arguments;
                     process.StartInfo.RedirectStandardOutput = true;
                     process.StartInfo.RedirectStandardError = true;
@@ -259,24 +258,91 @@ namespace Updater.GUI
                     return;
                 }
 
-                // 执行更新
-                StatusText.Text = "正在准备更新...";
-                Log("开始执行更新操作...");
+                // 使用进程调用控制台版本执行实际更新
+                // 注意：单文件发布时 Assembly.Location 返回空字符串，使用 AppContext.BaseDirectory 获取应用目录
+                string appBaseDir = AppContext.BaseDirectory;
+                string consoleExePath = Path.Combine(appBaseDir, "Updater.exe");
 
-                bool updateSuccess = false;
-                try
+                if (!File.Exists(consoleExePath))
                 {
-                    updateSuccess = await ExecuteUpdate(packagePath, targetDir, updateType);
-                }
-                catch (Exception ex)
-                {
-                    Log($"更新失败: {ex.Message}");
-                    StatusText.Text = "更新失败";
-                    UpdateProgress.IsIndeterminate = false;
-                    UpdateProgress.Value = 0;
-                    CancelButton.IsEnabled = false;
+                    Log($"错误：控制台版本不存在 - {consoleExePath}");
+                    StatusText.Text = "控制台版本未找到";
                     CloseButton.IsEnabled = true;
                     return;
+                }
+
+                // 构建命令行参数：主程序 安装包 目标目录 删除安装包 更新类型
+                // 参数中路径可能含空格，需要加引号
+                string arguments = $"\"{mainAppExe}\" \"{packagePath}\" \"{targetDir}\" {deleteAfterUpdate.ToString().ToLower()} {updateType}";
+
+                Log($"启动控制台更新程序: {consoleExePath}");
+                Log($"参数: {arguments}");
+
+                StatusText.Text = "正在准备更新...";
+                Log("开始执行更新操作...");
+                UpdateProgress.IsIndeterminate = true;
+
+                bool updateSuccess = false;
+                int consoleExitCode = -1;
+
+                using (var process = new Process())
+                {
+                    process.StartInfo.FileName = consoleExePath;
+                    process.StartInfo.Arguments = arguments;
+                    process.StartInfo.RedirectStandardOutput = true;
+                    process.StartInfo.RedirectStandardError = true;
+                    process.StartInfo.UseShellExecute = false;
+                    process.StartInfo.CreateNoWindow = true;
+
+                    process.OutputDataReceived += (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                        {
+                            // 解析日志中的进度信息（如果有的话）
+                            Dispatcher.Invoke(() =>
+                            {
+                                Log(e.Data);
+                                // 如果日志中包含百分比，尝试更新进度条
+                                var match = System.Text.RegularExpressions.Regex.Match(e.Data, @"(\d+(?:\.\d+)?)\s*%");
+                                if (match.Success && double.TryParse(match.Groups[1].Value, out double percent))
+                                {
+                                    UpdateProgress.IsIndeterminate = false;
+                                    UpdateProgress.Value = Math.Clamp(percent, 0, 100);
+                                    ProgressText.Text = $"{percent:F0}%";
+                                }
+                            });
+                        }
+                    };
+
+                    process.ErrorDataReceived += (sender, e) =>
+                    {
+                        if (!string.IsNullOrEmpty(e.Data))
+                            Log($"错误: {e.Data}");
+                    };
+
+                    process.Start();
+                    process.BeginOutputReadLine();
+                    process.BeginErrorReadLine();
+
+                    // 支持取消：如果用户点击取消，尝试杀掉控制台进程
+                    var waitTask = Task.Run(() => process.WaitForExit());
+                    while (!waitTask.IsCompleted)
+                    {
+                        if (_isCancelled)
+                        {
+                            try
+                            {
+                                process.Kill(entireProcessTree: true);
+                                Log("用户取消，已终止更新进程");
+                            }
+                            catch { }
+                            break;
+                        }
+                        await Task.Delay(100);
+                    }
+
+                    await waitTask;
+                    consoleExitCode = process.ExitCode;
                 }
 
                 if (_isCancelled)
@@ -289,33 +355,35 @@ namespace Updater.GUI
                     return;
                 }
 
+                // Console版本正常退出码为0表示成功
+                updateSuccess = (consoleExitCode == 0);
+
                 if (updateSuccess)
                 {
-                    if (deleteAfterUpdate)
-                    {
-                        StatusText.Text = "正在清理安装包...";
-                        Log("删除安装包...");
-                        try
-                        {
-                            File.Delete(packagePath);
-                            Log($"已删除安装包: {packagePath}");
-                        }
-                        catch (Exception ex)
-                        {
-                            Log($"删除安装包失败: {ex.Message}");
-                        }
-                    }
-
-                    StatusText.Text = "更新完成，正在启动主程序...";
-                    Log("更新完成，启动主程序...");
-                    LaunchMainApplication(targetDir, mainAppExe);
+                    // 注意：删除安装包和启动主程序由Console版本负责执行
+                    // 这里只需要更新UI状态即可
+                    UpdateProgress.IsIndeterminate = false;
+                    UpdateProgress.Value = 100;
+                    ProgressText.Text = "100%";
+                    StatusText.Text = "更新完成";
+                    Log("===== 更新完成 =====");
+                }
+                else
+                {
+                    Log($"更新失败，控制台进程退出码: {consoleExitCode}");
+                    StatusText.Text = "更新失败";
+                    UpdateProgress.IsIndeterminate = false;
+                    UpdateProgress.Value = 0;
                 }
 
+                CloseButton.IsEnabled = true;
+            }
+            catch (Exception ex)
+            {
+                Log($"更新过程发生错误: {ex.Message}");
+                StatusText.Text = "更新失败";
                 UpdateProgress.IsIndeterminate = false;
-                UpdateProgress.Value = 100;
-                ProgressText.Text = "100%";
-                StatusText.Text = "更新完成";
-                Log("===== 更新完成 =====");
+                UpdateProgress.Value = 0;
                 CloseButton.IsEnabled = true;
             }
             finally
@@ -324,45 +392,6 @@ namespace Updater.GUI
                 CancelButton.IsEnabled = false;
                 CloseButton.IsEnabled = true;
             }
-        }
-
-        private async Task<bool> ExecuteUpdate(string packagePath, string targetDir, string updateType)
-        {
-            try
-            {
-                Log($"执行{updateType}更新...");
-                StatusText.Text = $"正在{GetUpdateTypeName(updateType)}更新...";
-
-                for (int i = 0; i <= 100; i += 10)
-                {
-                    if (_isCancelled)
-                        return false;
-
-                    UpdateProgress.IsIndeterminate = false;
-                    UpdateProgress.Value = i;
-                    ProgressText.Text = $"{i}%";
-                    await Task.Delay(300);
-                }
-
-                Log($"{GetUpdateTypeName(updateType)}更新完成");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Log($"更新过程中发生错误: {ex.Message}");
-                throw;
-            }
-        }
-
-        private string GetUpdateTypeName(string updateType)
-        {
-            return updateType switch
-            {
-                "zip" => "ZIP全量",
-                "installer" => "安装包",
-                "incremental" => "增量",
-                _ => updateType
-            };
         }
 
         private void LaunchMainApplication(string targetDir, string mainAppExe)

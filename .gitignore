@@ -5,5 +5,5 @@
 /.vs
 /Updater/bin
 /Updater/obj
-/Updater.Console/bin
-/Updater.Console/obj
+/Updater.GUI/bin
+/Updater.GUI/obj

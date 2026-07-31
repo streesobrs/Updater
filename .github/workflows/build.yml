@@ -149,7 +149,7 @@ jobs:
     # ---------------- publish GUI versions ----------------
     - name: Publish GUI version for .NET 6
       run: |
-        dotnet publish Updater.Console/Updater.Console.csproj \
+        dotnet publish Updater.GUI/Updater.GUI.csproj \
           -c ${{ env.CONFIGURATION }} \
           -r ${{ env.RUNTIME_ID }} \
           -f net6.0-windows \
@@ -160,7 +160,7 @@ jobs:
 
     - name: Publish GUI version for .NET 8
       run: |
-        dotnet publish Updater.Console/Updater.Console.csproj \
+        dotnet publish Updater.GUI/Updater.GUI.csproj \
           -c ${{ env.CONFIGURATION }} \
           -r ${{ env.RUNTIME_ID }} \
           -f net8.0-windows \
@@ -171,7 +171,7 @@ jobs:
 
     - name: Publish GUI version for .NET 10
       run: |
-        dotnet publish Updater.Console/Updater.Console.csproj \
+        dotnet publish Updater.GUI/Updater.GUI.csproj \
           -c ${{ env.CONFIGURATION }} \
           -r ${{ env.RUNTIME_ID }} \
           -f net10.0-windows \
