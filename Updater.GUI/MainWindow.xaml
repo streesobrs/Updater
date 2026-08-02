@@ -5,11 +5,11 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:Updater.GUI"
         mc:Ignorable="d"
-        Title="Updater - 程序更新器" Height="500" Width="700"
+        Title="Updater - 程序更新器" Height="560" Width="760"
         WindowStyle="SingleBorderWindow"
         ResizeMode="CanResize"
         WindowStartupLocation="CenterScreen"
-        MinHeight="400" MinWidth="600">
+        MinHeight="440" MinWidth="640">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -53,8 +53,129 @@
                 <ProgressBar x:Name="UpdateProgress" Height="20" IsIndeterminate="True" Background="#E8E8E8" Foreground="#4A90D9"/>
             </StackPanel>
 
-            <!-- 日志区域 -->
-            <Border Grid.Row="1" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="4" Background="White">
+            <!-- ============ 参数配置面板（手动模式时显示） ============ -->
+            <Border x:Name="ConfigPanel" Grid.Row="1" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="4" Background="White"
+                    Visibility="Collapsed" Padding="16">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="更新参数配置" FontSize="16" FontWeight="Bold" Foreground="#333" Margin="0,0,0,12"/>
+                        <TextBlock Text="请填写以下参数后点击「开始更新」按钮。你也可以通过命令行参数自动填入这些字段。"
+                                   FontSize="12" Foreground="#666" TextWrapping="Wrap" Margin="0,0,0,16"/>
+
+                        <!-- 1. 主程序文件名 -->
+                        <TextBlock Text="主程序文件名" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,4"/>
+                        <TextBlock Text="更新完成后需要启动的主程序文件名（如：Software.exe）" FontSize="11" Foreground="#888" Margin="0,0,0,4"/>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="MainAppExeTextBox" Grid.Column="0" Padding="6,4"
+                                     ToolTip="选择主程序可执行文件"/>
+                            <Button x:Name="BrowseMainAppButton" Grid.Column="1" Content="浏览…" Width="72" Margin="8,0,0,0"
+                                    Click="BrowseMainAppButton_Click" Padding="8,2"/>
+                        </Grid>
+
+                        <!-- 2. 安装包路径 -->
+                        <TextBlock Text="安装包路径" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,4"/>
+                        <TextBlock Text="更新包的完整路径（支持 .zip 全量/增量包 或 .exe 安装包）" FontSize="11" Foreground="#888" Margin="0,0,0,4"/>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="PackagePathTextBox" Grid.Column="0" Padding="6,4"/>
+                            <Button x:Name="BrowsePackageButton" Grid.Column="1" Content="浏览…" Width="72" Margin="8,0,0,0"
+                                    Click="BrowsePackageButton_Click" Padding="8,2"/>
+                        </Grid>
+
+                        <!-- 3. 目标目录 -->
+                        <TextBlock Text="目标目录" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,4"/>
+                        <TextBlock Text="程序安装/更新的目标文件夹（如：D:\Software）" FontSize="11" Foreground="#888" Margin="0,0,0,4"/>
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox x:Name="TargetDirTextBox" Grid.Column="0" Padding="6,4"/>
+                            <Button x:Name="BrowseTargetDirButton" Grid.Column="1" Content="浏览…" Width="72" Margin="8,0,0,0"
+                                    Click="BrowseTargetDirButton_Click" Padding="8,2"/>
+                        </Grid>
+
+                        <!-- 4. 删除安装包 & 5. 更新类型 -->
+                        <Grid Margin="0,0,0,12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
+                                <TextBlock Text="更新后是否删除安装包" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,6"/>
+                                <CheckBox x:Name="DeletePackageCheckBox" Content="更新完成后删除安装包文件"
+                                          IsChecked="True" Foreground="#444"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                <TextBlock Text="更新类型" FontWeight="SemiBold" Foreground="#333" Margin="0,0,0,6"/>
+                                <ComboBox x:Name="UpdateTypeComboBox" Padding="6,3">
+                                    <ComboBoxItem Content="增量更新（incremental）" Tag="incremental" IsSelected="True"/>
+                                    <ComboBoxItem Content="ZIP 全量更新（zip）" Tag="zip"/>
+                                    <ComboBoxItem Content="EXE 安装包（installer）" Tag="installer"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- 操作提示 -->
+                        <Border Background="#F6F8FA" CornerRadius="4" Padding="10" Margin="0,0,0,14">
+                            <StackPanel>
+                                <TextBlock Text="💡 小贴士" FontWeight="SemiBold" Foreground="#4A90D9" FontSize="12" Margin="0,0,0,4"/>
+                                <TextBlock Text="• 增量更新：安装包内需包含 _delete_list.txt 删除列表文件"
+                                           FontSize="11" Foreground="#555"/>
+                                <TextBlock Text="• ZIP 全量更新：解压覆盖目标目录下的所有文件"
+                                           FontSize="11" Foreground="#555"/>
+                                <TextBlock Text="• 安装包更新：启动 EXE 安装程序由用户完成安装"
+                                           FontSize="11" Foreground="#555"/>
+                                <TextBlock Text="• 使用命令行传入参数时将跳过此配置面板，直接开始更新"
+                                           FontSize="11" Foreground="#555"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 开始按钮 -->
+                        <Button x:Name="StartUpdateButton" Content="▶ 开始更新" Height="36" FontSize="14" FontWeight="SemiBold"
+                                Background="#4A90D9" Foreground="White" BorderThickness="0"
+                                Click="StartUpdateButton_Click" Cursor="Hand">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="Button">
+                                                <Border x:Name="border" Background="{TemplateBinding Background}"
+                                                        CornerRadius="4" Padding="16,4"
+                                                        BorderBrush="#3A7BC8" BorderThickness="1">
+                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Border>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="border" Property="Background" Value="#3A7BC8"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsPressed" Value="True">
+                                                        <Setter TargetName="border" Property="Background" Value="#2E64A6"/>
+                                                    </Trigger>
+                                                    <Trigger Property="IsEnabled" Value="False">
+                                                        <Setter TargetName="border" Property="Background" Value="#A0C4E8"/>
+                                                        <Setter TargetName="border" Property="BorderBrush" Value="#A0C4E8"/>
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <!-- ============ 日志区域（更新进行中/完成时显示） ============ -->
+            <Border x:Name="LogPanelBorder" Grid.Row="1" BorderBrush="#E0E0E0" BorderThickness="1" CornerRadius="4" Background="White">
                 <DockPanel>
                     <Grid DockPanel.Dock="Bottom" Height="26" Background="#F5F5F5">
                         <StackPanel Orientation="Horizontal" Margin="8,4,8,4">
@@ -63,7 +184,7 @@
                             <TextBlock x:Name="LogCountText" Text="0 条" FontSize="11" Foreground="#666" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Grid>
-                    <TextBox x:Name="LogTextBox" 
+                    <TextBox x:Name="LogTextBox"
                              IsReadOnly="True"
                              FontFamily="Consolas, 'Courier New', monospace"
                              FontSize="11"
