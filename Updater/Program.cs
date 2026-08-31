@@ -593,7 +593,9 @@ namespace Updater
 
             try
             {
-                _backupDir = $"{targetDir}_backup_{DateTime.Now:yyyyMMddHHmmss}";
+                // 去除结尾分隔符，确保备份目录创建在目标目录同级（避免递归备份自身）
+                string normalizedTarget = targetDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                _backupDir = $"{normalizedTarget}_backup_{DateTime.Now:yyyyMMddHHmmss}";
                 Log($"开始创建备份到: {_backupDir}", LogLevel.Info);
 
                 // 创建备份目录
@@ -605,6 +607,10 @@ namespace Updater
                 {
                     foreach (var file in _fileSystem.EnumerateFiles(targetDir, pattern, SearchOption.AllDirectories))
                     {
+                        // 跳过备份目录自身的文件，防止枚举过程中递归复制
+                        if (file.StartsWith(_backupDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
                         string relativePath = Path.GetRelativePath(targetDir, file);
                         string destPath = Path.Combine(_backupDir, relativePath);
 
