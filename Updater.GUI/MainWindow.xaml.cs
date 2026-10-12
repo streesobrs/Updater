@@ -426,7 +426,7 @@ namespace Updater.GUI
                     return;
                 }
 
-                // 构建命令行参数（路径含空格，加引号）
+                // 参数展示用（实际传参走 ArgumentList，由运行时负责转义）
                 string arguments = $"\"{mainAppExe}\" \"{packagePath}\" \"{targetDir}\" {deleteAfterUpdate.ToString().ToLower()} {updateType}";
                 Log($"启动控制台更新程序: {consoleExePath}");
                 Log($"参数: {arguments}");
@@ -440,7 +440,13 @@ namespace Updater.GUI
                 using (var process = new Process())
                 {
                     process.StartInfo.FileName = consoleExePath;
-                    process.StartInfo.Arguments = arguments;
+                    // 使用 ArgumentList 由运行时按 Windows 规则转义，避免手工加引号时
+                    // 目录以反斜杠结尾（如 C:\Program Files (x86)\Software\）导致 \" 被解析为转义引号、参数被错误合并
+                    process.StartInfo.ArgumentList.Add(mainAppExe);
+                    process.StartInfo.ArgumentList.Add(packagePath);
+                    process.StartInfo.ArgumentList.Add(targetDir);
+                    process.StartInfo.ArgumentList.Add(deleteAfterUpdate.ToString().ToLower());
+                    process.StartInfo.ArgumentList.Add(updateType);
                     process.StartInfo.RedirectStandardOutput = true;
                     process.StartInfo.RedirectStandardError = true;
                     process.StartInfo.UseShellExecute = false;

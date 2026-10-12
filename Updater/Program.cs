@@ -2097,8 +2097,22 @@ namespace Updater
         /// <param name="total">总进度</param>
         private static void UpdateProgress(int current, int total)
         {
-            int windowWidth = Console.WindowWidth > 0 ? Console.WindowWidth : 120;
             double percent = (double)current / total * 100;
+
+            // 被其他程序调用（如 GUI 通过重定向启动、进程无控制台）时，
+            // Console.WindowWidth 会抛出 IOException（句柄无效），
+            // 这里退化为单行百分比输出，既避免更新被误判为失败，也便于 GUI 解析进度。
+            int windowWidth;
+            try
+            {
+                windowWidth = Console.WindowWidth > 0 ? Console.WindowWidth : 120;
+            }
+            catch (IOException)
+            {
+                Console.WriteLine($"{percent:F0}%");
+                return;
+            }
+
             int progressBars = (int)(percent / 2);
 
             Console.Write("\r" + new string(' ', windowWidth - 1) + "\r");
