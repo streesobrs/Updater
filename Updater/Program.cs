@@ -265,7 +265,7 @@ namespace Updater
     /// <summary>
     /// 主程序类 - 负责程序更新功能
     /// </summary>
-    class Program
+    public class Program
     {
         // 日志级别枚举
         public enum LogLevel
@@ -289,11 +289,27 @@ namespace Updater
         private static TestReport _currentTestReport = null;
         private static string _backupDir = null;
 
+        // 为 true 时在结束时调用 Environment.Exit 退出当前进程。
+        // 被 GUI 进程内调用时置为 false，避免把宿主（GUI）进程一起结束掉。
+        private static bool _exitOnComplete = true;
+
+        // 为 true 时不渲染控制台进度条，改为逐行输出百分比（供 GUI 进程内解析）
+        private static bool _suppressConsoleProgress = false;
+
         /// <summary>
         /// 程序入口点
         /// </summary>
         /// <param name="args">命令行参数</param>
         static void Main(string[] args)
+        {
+            PrepareArgs(args);
+            MainAsync(args).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// 解析入口参数（帮助命令 / 测试模式）
+        /// </summary>
+        static void PrepareArgs(string[] args)
         {
             Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 
@@ -307,8 +323,21 @@ namespace Updater
             {
                 ParseTestModeArgs(args);
             }
+        }
 
-            MainAsync(args).GetAwaiter().GetResult();
+        /// <summary>
+        /// 供 GUI（Updater.GUI）在同一进程内直接调用的更新入口。
+        /// 当 GUI 以 Updater.exe 名称部署时，它与控制台版本同名，无法再拉起一个独立的
+        /// 控制台子进程（否则会自我递归、无限开窗），因此改为进程内执行。
+        /// </summary>
+        /// <param name="args">与命令行一致的 5 个更新参数</param>
+        /// <returns>退出码，0 表示成功</returns>
+        public static async Task<int> RunInProcessAsync(string[] args)
+        {
+            _exitOnComplete = false;
+            _suppressConsoleProgress = true;
+            PrepareArgs(args);
+            return await RunCoreAsync(args, isNonInteractive: true);
         }
 
         /// <summary>
@@ -450,13 +479,22 @@ namespace Updater
         {
             // 检测是否为非交互模式（被其他进程调用，输出被重定向）
             bool isNonInteractive = !Environment.UserInteractive || Console.IsOutputRedirected;
+            int exitCode = await RunCoreAsync(args, isNonInteractive);
+            Environment.ExitCode = exitCode;
+        }
+
+        /// <summary>
+        /// 更新核心逻辑（控制台入口与 GUI 进程内入口共用）
+        /// </summary>
+        static async Task<int> RunCoreAsync(string[] args, bool isNonInteractive)
+        {
             int exitCode = 0;
 
             // 优先处理帮助命令：显示帮助后直接退出
             if (_needShowHelp)
             {
                 ShowHelp();
-                return;
+                return exitCode;
             }
 
             InitializeLogging();
@@ -480,7 +518,7 @@ namespace Updater
                     {
                         exitCode = 1;
                         WaitForExit(isNonInteractive);
-                        return;
+                        return exitCode;
                     }
 
                     // 创建备份目录
@@ -511,7 +549,7 @@ namespace Updater
                             Log($"支持的更新类型：{Config.UpdateTypeZip} / {Config.UpdateTypeInstaller} / {Config.UpdateTypeIncremental}", LogLevel.Info);
                             exitCode = 1;
                             WaitForExit(isNonInteractive);
-                            return;
+                            return exitCode;
                         }
                         updateSuccess = true;
                     }
@@ -573,10 +611,9 @@ namespace Updater
                 {
                     _logWriter?.Dispose();
                 }
-
-                // 确保设置进程退出码（如果GracefulShutdown中没有Environment.Exit的话）
-                Environment.ExitCode = exitCode;
             }
+
+            return exitCode;
         }
 
         /// <summary>
@@ -2099,6 +2136,13 @@ namespace Updater
         {
             double percent = (double)current / total * 100;
 
+            // 被 GUI 进程内调用时不做控制台进度条渲染，直接逐行输出百分比，便于 GUI 解析
+            if (_suppressConsoleProgress)
+            {
+                Console.WriteLine($"{percent:F0}%");
+                return;
+            }
+
             // 被其他程序调用（如 GUI 通过重定向启动、进程无控制台）时，
             // Console.WindowWidth 会抛出 IOException（句柄无效），
             // 这里退化为单行百分比输出，既避免更新被误判为失败，也便于 GUI 解析进度。
@@ -2168,9 +2212,12 @@ namespace Updater
             {
                 // 非交互模式：不等待，直接退出并设置正确退出码
                 Log("非交互模式，立即退出", LogLevel.Info);
-                Environment.Exit(exitCode);
+                if (_exitOnComplete) Environment.Exit(exitCode);
                 return;
             }
+
+            // 被 GUI 进程内调用：不等待、不退出，把控制权交还给宿主
+            if (!_exitOnComplete) return;
 
             int waitSeconds = _isTestMode ? Config.TestModeShutdownWaitSeconds : Config.GracefulShutdownWaitSeconds;
             Log($"{waitSeconds}秒后自动退出...", LogLevel.Info);
@@ -2190,7 +2237,7 @@ namespace Updater
         /// </summary>
         static void WaitForExit(bool isNonInteractive = false)
         {
-            if (isNonInteractive)
+            if (isNonInteractive || !_exitOnComplete)
             {
                 // 非交互模式：不等待Console.ReadKey（会崩溃），直接返回
                 // 退出码已由调用方设置
@@ -2213,27 +2260,36 @@ namespace Updater
         {
             string logMessage = $"[{DateTime.Now.ToString(Config.DateTimeFormat)}] [{level}] [{caller}] {message}";
 
-            ConsoleColor originalColor = Console.ForegroundColor;
+            // 无控制台环境（例如被 GUI 进程内调用）下读取/设置控制台颜色会抛异常，
+            // 这里做降级处理，保证日志与更新流程不中断。
             try
             {
-                switch (level)
+                ConsoleColor originalColor = Console.ForegroundColor;
+                try
                 {
-                    case LogLevel.Warning:
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        break;
-                    case LogLevel.Error:
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        break;
-                    case LogLevel.Debug:
-                        Console.ForegroundColor = ConsoleColor.Gray;
-                        break;
-                }
+                    switch (level)
+                    {
+                        case LogLevel.Warning:
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            break;
+                        case LogLevel.Error:
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            break;
+                        case LogLevel.Debug:
+                            Console.ForegroundColor = ConsoleColor.Gray;
+                            break;
+                    }
 
-                Console.WriteLine(logMessage);
+                    Console.WriteLine(logMessage);
+                }
+                finally
+                {
+                    Console.ForegroundColor = originalColor;
+                }
             }
-            finally
+            catch (Exception)
             {
-                Console.ForegroundColor = originalColor;
+                try { Console.WriteLine(logMessage); } catch { }
             }
 
             try

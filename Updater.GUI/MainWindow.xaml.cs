@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -20,6 +21,8 @@ namespace Updater.GUI
         private int? _performanceTestScale = null;
         private string _testErrorScenario = null;
         private int _logCount = 0;
+        private string _logFilePath;
+        private readonly object _logFileLock = new object();
 
         public MainWindow(string[] args)
         {
@@ -414,87 +417,41 @@ namespace Updater.GUI
                     return;
                 }
 
-                // 调用控制台版本执行真正的更新逻辑（单文件发布兼容：AppContext.BaseDirectory）
-                string consoleExePath = Path.Combine(AppContext.BaseDirectory, "Updater.exe");
-
-                if (!File.Exists(consoleExePath))
-                {
-                    Log($"错误：控制台版本不存在 - {consoleExePath}");
-                    Log("提示：Updater.exe（控制台版本）需与 Updater.GUI.exe 放在同一目录下");
-                    StatusText.Text = "控制台版本未找到";
-                    CloseButton.IsEnabled = true;
-                    return;
-                }
-
-                // 参数展示用（实际传参走 ArgumentList，由运行时负责转义）
-                string arguments = $"\"{mainAppExe}\" \"{packagePath}\" \"{targetDir}\" {deleteAfterUpdate.ToString().ToLower()} {updateType}";
-                Log($"启动控制台更新程序: {consoleExePath}");
-                Log($"参数: {arguments}");
+                // 解析控制台更新器路径。
+                // 注意：GUI 可能与控制台版本同名部署（例如都叫 Updater.exe），
+                // 此时它会把自己当成"控制台"再拉起一次，导致自我递归、无限开窗；
+                // 因此这种情况下（以及找不到独立控制台时）改为在进程内直接执行更新。
+                string baseDir = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
+                string consoleExePath = Path.Combine(baseDir, "Updater.exe");
+                bool currentIsConsole = string.Equals(consoleExePath, Environment.ProcessPath, StringComparison.OrdinalIgnoreCase);
+                bool runInProcess = currentIsConsole || !File.Exists(consoleExePath);
 
                 StatusText.Text = "正在准备更新...";
                 Log("开始执行更新操作...");
                 UpdateProgress.IsIndeterminate = true;
 
-                int consoleExitCode = -1;
-
-                using (var process = new Process())
+                int consoleExitCode;
+                if (runInProcess)
                 {
-                    process.StartInfo.FileName = consoleExePath;
-                    // 使用 ArgumentList 由运行时按 Windows 规则转义，避免手工加引号时
-                    // 目录以反斜杠结尾（如 C:\Program Files (x86)\Software\）导致 \" 被解析为转义引号、参数被错误合并
-                    process.StartInfo.ArgumentList.Add(mainAppExe);
-                    process.StartInfo.ArgumentList.Add(packagePath);
-                    process.StartInfo.ArgumentList.Add(targetDir);
-                    process.StartInfo.ArgumentList.Add(deleteAfterUpdate.ToString().ToLower());
-                    process.StartInfo.ArgumentList.Add(updateType);
-                    process.StartInfo.RedirectStandardOutput = true;
-                    process.StartInfo.RedirectStandardError = true;
-                    process.StartInfo.UseShellExecute = false;
-                    process.StartInfo.CreateNoWindow = true;
-
-                    process.OutputDataReceived += (_, e) =>
+                    Log(currentIsConsole
+                        ? "当前程序即为控制台更新器（Updater.exe），改为进程内执行更新"
+                        : $"未找到独立的控制台更新器（{consoleExePath}），改为进程内执行更新");
+                    consoleExitCode = await RunUpdateInProcessAsync(mainAppExe, packagePath, targetDir, deleteAfterUpdate, updateType);
+                }
+                else
+                {
+                    // 参数展示用（实际传参走 ArgumentList，由运行时负责转义）
+                    var consoleArgs = new[]
                     {
-                        if (string.IsNullOrEmpty(e.Data)) return;
-                        Dispatcher.Invoke(() =>
-                        {
-                            Log(e.Data);
-                            // 尝试解析日志中的百分比更新进度条
-                            var match = Regex.Match(e.Data, @"(\d+(?:\.\d+)?)\s*%");
-                            if (match.Success && double.TryParse(match.Groups[1].Value, out double percent))
-                            {
-                                UpdateProgress.IsIndeterminate = false;
-                                UpdateProgress.Value = Math.Clamp(percent, 0, 100);
-                                ProgressText.Text = $"{percent:F0}%";
-                            }
-                        });
+                        mainAppExe,
+                        packagePath,
+                        targetDir,
+                        deleteAfterUpdate.ToString().ToLower(),
+                        updateType
                     };
-                    process.ErrorDataReceived += (_, e) =>
-                    {
-                        if (!string.IsNullOrEmpty(e.Data)) Log($"错误: {e.Data}");
-                    };
-
-                    process.Start();
-                    process.BeginOutputReadLine();
-                    process.BeginErrorReadLine();
-
-                    // 支持取消：每 100ms 轮询取消标志
-                    var waitTask = Task.Run(() => process.WaitForExit());
-                    while (!waitTask.IsCompleted)
-                    {
-                        if (_isCancelled)
-                        {
-                            try
-                            {
-                                process.Kill(entireProcessTree: true);
-                                Log("用户取消，已终止更新进程");
-                            }
-                            catch { }
-                            break;
-                        }
-                        await Task.Delay(100);
-                    }
-                    await waitTask;
-                    consoleExitCode = process.ExitCode;
+                    Log($"启动控制台更新程序: {consoleExePath}");
+                    Log($"参数: {string.Join(" ", consoleArgs)}");
+                    consoleExitCode = await RunConsoleUpdaterAsync(consoleExePath, consoleArgs);
                 }
 
                 if (_isCancelled)
@@ -545,15 +502,186 @@ namespace Updater.GUI
             }
         }
 
+        /// <summary>
+        /// 拉起独立的控制台更新器子进程执行更新，并把子进程输出转发到日志区
+        /// </summary>
+        private async Task<int> RunConsoleUpdaterAsync(string consoleExePath, string[] args)
+        {
+            using (var process = new Process())
+            {
+                process.StartInfo.FileName = consoleExePath;
+                // 使用 ArgumentList 由运行时按 Windows 规则转义，避免手工加引号时
+                // 目录以反斜杠结尾（如 C:\Program Files (x86)\Software\）导致 \" 被解析为转义引号、参数被错误合并
+                foreach (string arg in args)
+                    process.StartInfo.ArgumentList.Add(arg);
+                process.StartInfo.RedirectStandardOutput = true;
+                process.StartInfo.RedirectStandardError = true;
+                process.StartInfo.UseShellExecute = false;
+                process.StartInfo.CreateNoWindow = true;
+
+                process.OutputDataReceived += (_, e) =>
+                {
+                    if (string.IsNullOrEmpty(e.Data)) return;
+                    Dispatcher.Invoke(() =>
+                    {
+                        Log(e.Data);
+                        UpdateProgressFromLine(e.Data);
+                    });
+                };
+                process.ErrorDataReceived += (_, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data)) Log($"错误: {e.Data}");
+                };
+
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                // 支持取消：每 100ms 轮询取消标志
+                var waitTask = Task.Run(() => process.WaitForExit());
+                while (!waitTask.IsCompleted)
+                {
+                    if (_isCancelled)
+                    {
+                        try
+                        {
+                            process.Kill(entireProcessTree: true);
+                            Log("用户取消，已终止更新进程");
+                        }
+                        catch { }
+                        break;
+                    }
+                    await Task.Delay(100);
+                }
+                await waitTask;
+
+                return _isCancelled ? -1 : process.ExitCode;
+            }
+        }
+
+        /// <summary>
+        /// 在当前进程内直接执行控制台更新逻辑（不再拉起子进程）。
+        /// 用于 GUI 与 Updater.exe 同名部署、或找不到独立控制台更新器的场景，
+        /// 避免自我递归启动导致的无限开窗。
+        /// </summary>
+        private async Task<int> RunUpdateInProcessAsync(string mainAppExe, string packagePath, string targetDir, bool deleteAfterUpdate, string updateType)
+        {
+            // 把控制台逻辑的 Console 输出按行转发到日志区，并解析百分比进度
+            var writer = new LogTextWriter(line => Dispatcher.Invoke(() =>
+            {
+                UpdateProgressFromLine(line);
+                // 纯百分比进度行不写入日志文本，避免刷屏
+                if (!Regex.IsMatch(line, @"^\s*\d+(?:\.\d+)?%\s*$"))
+                    Log(line);
+            }));
+
+            TextWriter originalOut = null;
+            TextWriter originalError = null;
+            try
+            {
+                try { originalOut = Console.Out; Console.SetOut(writer); } catch { }
+                try { originalError = Console.Error; Console.SetError(writer); } catch { }
+
+                var args = new[]
+                {
+                    mainAppExe,
+                    packagePath,
+                    targetDir,
+                    deleteAfterUpdate.ToString().ToLower(),
+                    updateType
+                };
+                return await global::Updater.Program.RunInProcessAsync(args);
+            }
+            finally
+            {
+                if (originalOut != null) { try { Console.SetOut(originalOut); } catch { } }
+                if (originalError != null) { try { Console.SetError(originalError); } catch { } }
+            }
+        }
+
+        /// <summary>
+        /// 从一行输出中解析百分比并更新进度条
+        /// </summary>
+        private void UpdateProgressFromLine(string line)
+        {
+            var match = Regex.Match(line, @"(\d+(?:\.\d+)?)\s*%");
+            if (match.Success && double.TryParse(match.Groups[1].Value, out double percent))
+            {
+                UpdateProgress.IsIndeterminate = false;
+                UpdateProgress.Value = Math.Clamp(percent, 0, 100);
+                ProgressText.Text = $"{percent:F0}%";
+            }
+        }
+
+        /// <summary>
+        /// 把控制台输出按行转发给回调（供 GUI 日志区显示）
+        /// </summary>
+        private sealed class LogTextWriter : TextWriter
+        {
+            private readonly Action<string> _onLine;
+            private readonly StringBuilder _buffer = new StringBuilder();
+
+            public LogTextWriter(Action<string> onLine) => _onLine = onLine;
+
+            public override Encoding Encoding => Encoding.UTF8;
+
+            public override void Write(char value)
+            {
+                if (value == '\n') { FlushLine(); return; }
+                if (value == '\r') return;
+                _buffer.Append(value);
+            }
+
+            public override void Write(string value)
+            {
+                if (string.IsNullOrEmpty(value)) return;
+                foreach (char c in value) Write(c);
+            }
+
+            private void FlushLine()
+            {
+                string line = _buffer.ToString();
+                _buffer.Clear();
+                if (line.Length > 0) _onLine(line);
+            }
+        }
+
         private void Log(string message)
         {
             Dispatcher.Invoke(() =>
             {
                 _logCount++;
-                LogTextBox.AppendText($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}{Environment.NewLine}");
+                string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} - {message}";
+                LogTextBox.AppendText(line + Environment.NewLine);
                 LogTextBox.ScrollToEnd();
                 LogCountText.Text = $"{_logCount} 条";
+                WriteLogToFile(line);
             });
+        }
+
+        /// <summary>
+        /// 把 GUI 日志同时写入 exe 同级的 logs 目录，便于事后排查
+        /// </summary>
+        private void WriteLogToFile(string line)
+        {
+            try
+            {
+                if (_logFilePath == null)
+                {
+                    string dir = Path.Combine(Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory, "logs");
+                    Directory.CreateDirectory(dir);
+                    _logFilePath = Path.Combine(dir, $"gui_{DateTime.Now:yyyyMMdd}.log");
+                }
+
+                lock (_logFileLock)
+                {
+                    File.AppendAllText(_logFilePath, line + Environment.NewLine, Encoding.UTF8);
+                }
+            }
+            catch
+            {
+                // 日志文件不可写时忽略，不影响更新流程
+            }
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
